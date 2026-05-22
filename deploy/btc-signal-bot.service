@@ -1,0 +1,46 @@
+# systemd unit for the BTC AI Signal Bot
+#
+# Install:
+#   sudo cp deploy/btc-signal-bot.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now btc-signal-bot
+#
+# Edit the paths and User= line below to match your server.
+
+[Unit]
+Description=BTC AI Signal Bot (scanner -> Claude -> risk -> Telegram)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Change these to match your server:
+User=botuser
+WorkingDirectory=/home/botuser/btc-signal-bot
+EnvironmentFile=/home/botuser/btc-signal-bot/.env
+ExecStart=/home/botuser/btc-signal-bot/.venv/bin/python -m bot.main
+
+# Restart policy
+Restart=always
+RestartSec=15
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# Resource limits
+MemoryMax=512M
+CPUQuota=50%
+
+# Logging (journald — view with `journalctl -u btc-signal-bot -f`)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=btc-signal-bot
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/botuser/btc-signal-bot/data /home/botuser/btc-signal-bot/logs
+
+[Install]
+WantedBy=multi-user.target

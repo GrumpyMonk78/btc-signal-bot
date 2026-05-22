@@ -1,0 +1,36 @@
+# Core
+python-dotenv>=1.0.1
+pydantic>=2.7.0
+pydantic-settings>=2.3.0
+
+# Async
+aiohttp>=3.9.5
+httpx>=0.27.0
+
+# Data
+pandas>=2.2.0
+numpy>=1.26.0
+pandas-ta>=0.3.14b0
+
+# Market data — Alpaca
+alpaca-py>=0.30.0
+
+# LLM
+anthropic>=0.39.0
+
+# Telegram
+python-telegram-bot>=21.4
+
+# Scheduling
+APScheduler>=3.10.4
+
+# Storage
+aiosqlite>=0.20.0
+
+# News / RSS
+feedparser>=6.0.11
+
+# Dev / testing
+pytest>=8.2.0
+pytest-asyncio>=0.23.7
+ruff>=0.5.0
