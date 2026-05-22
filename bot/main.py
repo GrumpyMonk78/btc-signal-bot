@@ -65,16 +65,15 @@ def _ensure_secrets() -> int:
 async def _amain() -> int:
     log = logging.getLogger(__name__)
 
-    from bot.data.market import default_provider
+    from bot.config import get_enabled_instruments
     from bot.scheduler import run_scheduler
     from bot.storage import db as storage_db
     from bot.storage.models import PortfolioState
 
-    log.info("BTC AI Signal Bot starting (mode=%s, model=%s)",
-             settings.mode.value, settings.anthropic_model)
-
-    provider = default_provider()
-    log.info("market data provider ready (Alpaca, paper=%s)", settings.alpaca_paper)
+    instruments = get_enabled_instruments()
+    log.info("AI Trading Bot starting (mode=%s, model=%s, instruments=%s)",
+             settings.mode.value, settings.anthropic_model,
+             [i.symbol for i in instruments])
 
     conn = storage_db.init_db(settings.db_path)
     log.info("DB ready at %s (schema_version=%d)",
@@ -90,7 +89,7 @@ async def _amain() -> int:
     log.info("portfolio stub: equity=$%.2f, open=%d, daily_pnl=%+.2f%%",
              portfolio.equity_usd, portfolio.open_positions, portfolio.daily_pnl_pct * 100)
 
-    await run_scheduler(provider=provider, conn=conn, portfolio=portfolio)
+    await run_scheduler(conn=conn, portfolio=portfolio)
     return 0
 
 

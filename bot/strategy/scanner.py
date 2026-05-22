@@ -258,6 +258,8 @@ def scan(primary_df: pd.DataFrame, context_df: pd.DataFrame) -> list[ScannerSign
     ema50 = ind.ema(primary_df["close"], H1_EMA_SLOW)
     atr14 = ind.atr(primary_df, ATR_PERIOD)
     vol_ma20 = ind.volume_ma(primary_df["volume"], VOLUME_MA_PERIOD)
+    rsi14 = ind.rsi(primary_df["close"], 14)
+    macd_df = ind.macd(primary_df["close"])
 
     # ── Walk chronologically, apply cooldown ──────────────────────────────
     signals: list[ScannerSignal] = []
@@ -292,7 +294,25 @@ def scan(primary_df: pd.DataFrame, context_df: pd.DataFrame) -> list[ScannerSign
             "ema20": float(ema20.get(ts, float("nan"))),
             "ema50": float(ema50.get(ts, float("nan"))),
             "atr14": float(atr14.get(ts, float("nan"))),
+            "rsi14": float(rsi14.get(ts, float("nan"))),
+            "macd": float(macd_df["macd"].get(ts, float("nan"))),
+            "macd_signal": float(macd_df["signal"].get(ts, float("nan"))),
+            "macd_hist": float(macd_df["histogram"].get(ts, float("nan"))),
             "vol_ma20": float(vol_ma20.get(ts, float("nan"))),
+            "h4_uptrend": float(bool(h4_up_on_h1.get(ts, False))),
+        }
+        signals.append(
+            ScannerSignal(
+                timestamp=ts,
+                filter=fired,
+                price=float(bar["close"]),
+                context=ctx,
+            )
+        )
+        last_ts = ts
+
+    return signals
+loat(vol_ma20.get(ts, float("nan"))),
             "h4_uptrend": float(bool(h4_up_on_h1.get(ts, False))),
         }
         signals.append(

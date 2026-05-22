@@ -1,140 +1,145 @@
 """
-Crypto news ingestion.
+Univerzalni news ingestion - funguje pro crypto i akcie.
 
-We fetch RSS feeds (free, no API key) and filter to BTC-relevant items.
-Two feeds for phase 1:
-  - CoinDesk:      https://www.coindesk.com/arc/outboundfeeds/rss/
-  - CoinTelegraph: https://cointelegraph.com/rss
+Zdroje dle typu instrumentu:
+  crypto -> CoinDesk RSS + CoinTelegraph RSS
+  stock  -> Yahoo Finance RSS + Finviz RSS (per-ticker, bez API klice)
 
-Both are RSS 2.0; `feedparser` handles them uniformly.
+Zadne filtrovani klicovymi slovy - vsechny zpravy z feedu jdou primo
+Claudovi, ktery sam posudi co je relevantni pro dane rozhodnuti.
+Yahoo Finance a Finviz RSS jsou jiz per-ticker, takze jsou prirozene
+relevantni. CoinDesk/CoinTelegraph jsou crypto-specificke.
 
-API
----
-    fetch_news(hours: int = 24) -> list[NewsItem]
-    is_btc_relevant(title: str, summary: str = "") -> bool
-
-The fetch is synchronous and uncached for now. The orchestrator should
-call it at most once per decision (≈ once per scanner trigger), so latency
-isn't critical and a Cache layer adds complexity we don't need yet.
+Verejna API:
+    fetch_news_for(instrument, hours=24, max_items=15) -> list[NewsItem]
+    fetch_news(hours=24, max_items=20) -> list[NewsItem]   # BTC zpetna kompatibilita
 """
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta, timezone
+from typing import TYPE_CHECKING
 
 import feedparser
 
 from bot.storage.models import NewsItem
 
+if TYPE_CHECKING:
+    from bot.config import InstrumentConfig
+
 logger = logging.getLogger(__name__)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Configuration
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Feed registry
+# ---------------------------------------------------------------------------
 
-FEEDS: list[tuple[str, str]] = [
-    ("CoinDesk", "https://www.coindesk.com/arc/outboundfeeds/rss/"),
+CRYPTO_FEEDS: list[tuple[str, str]] = [
+    ("CoinDesk",      "https://www.coindesk.com/arc/outboundfeeds/rss/"),
     ("CoinTelegraph", "https://cointelegraph.com/rss"),
 ]
 
-# Keywords that mark a story as BTC-relevant. Case-insensitive substring match.
-# Tuned for *signal*, not coverage — we want fewer false positives over more
-# headlines, because Claude can only weigh so many at once.
-BTC_KEYWORDS: tuple[str, ...] = (
-    "bitcoin", "btc/", " btc ", "btc:", "btc,", "btc.",
-    "spot etf", "bitcoin etf", "ibit", "fbtc",
-    "satoshi", "halving", "mining hashrate",
-    "microstrategy", "mstr", "saylor",
-    "binance", "coinbase", "kraken",
-    "sec ", "cftc", "treasury",
-    "fed ", "fomc", "powell", "rate cut", "rate hike",
-    "cpi ", "ppi ", "pce ", "nfp", "jobs report",
-)
-
-# Keywords that strongly suggest the story is NOT about BTC — used to filter
-# out altcoin-only news that happens to mention "Bitcoin" once in passing.
-NEGATIVE_KEYWORDS: tuple[str, ...] = (
-    " solana ", " sol ", " ada ", " cardano ", " doge ", " dogecoin ",
-    " ripple ", " xrp ", " pepe ", " shiba ", " bonk ",
-)
+FEEDS = CRYPTO_FEEDS  # alias pro zpetnou kompatibilitu
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Public API
-# ─────────────────────────────────────────────────────────────────────────────
+def _stock_feeds(ticker: str) -> list[tuple[str, str]]:
+    """Per-ticker RSS feeds pro akcie."""
+    return [
+        ("Yahoo Finance",
+         "https://feeds.finance.yahoo.com/rss/2.0/headline"
+         "?s=" + ticker + "&region=US&lang=en-US"),
+        ("Finviz",
+         "https://finviz.com/rss.ashx?t=" + ticker),
+    ]
 
 
-def is_btc_relevant(title: str, summary: str = "") -> bool:
-    """Heuristic: does this headline matter for BTC?"""
-    blob = f" {title.lower()} {summary.lower()} "
-
-    # Hard negatives: altcoin-only stories
-    if any(neg in blob for neg in NEGATIVE_KEYWORDS):
-        # ...unless BTC is explicitly named
-        if "bitcoin" not in blob and "btc" not in blob:
-            return False
-
-    return any(kw in blob for kw in BTC_KEYWORDS)
-
-
-def fetch_news(hours: int = 24, max_items: int = 20) -> list[NewsItem]:
-    """Fetch + filter recent crypto news.
-
-    Returns up to `max_items` BTC-relevant headlines from the last `hours`,
-    newest first.
-    """
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
-    items: list[NewsItem] = []
-
-    for source_name, url in FEEDS:
-        try:
-            parsed = feedparser.parse(url)
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("news.fetch_news: %s failed: %s", source_name, exc)
-            continue
-
-        for entry in parsed.entries:
-            ts = _entry_timestamp(entry)
-            if ts is None or ts < cutoff:
-                continue
-
-            title = getattr(entry, "title", "").strip()
-            summary = getattr(entry, "summary", "").strip()
-            url_ = getattr(entry, "link", "").strip()
-
-            if not title:
-                continue
-            if not is_btc_relevant(title, summary):
-                continue
-
-            items.append(
-                NewsItem(
-                    timestamp=ts,
-                    source=source_name,
-                    title=title[:512],
-                    summary=summary[:2048],
-                    url=url_[:1024],
-                )
-            )
-
-    # Newest first, capped.
-    items.sort(key=lambda n: n.timestamp, reverse=True)
-    return items[:max_items]
-
-
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 # Helpers
-# ─────────────────────────────────────────────────────────────────────────────
-
+# ---------------------------------------------------------------------------
 
 def _entry_timestamp(entry) -> datetime | None:
-    """Pull a tz-aware UTC datetime from a feedparser entry."""
-    # feedparser populates `published_parsed` (time.struct_time) when possible
-    parsed = getattr(entry, "published_parsed", None) or getattr(entry, "updated_parsed", None)
+    parsed = (
+        getattr(entry, "published_parsed", None)
+        or getattr(entry, "updated_parsed", None)
+    )
     if parsed is None:
         return None
     try:
         return datetime(*parsed[:6], tzinfo=timezone.utc)
     except (TypeError, ValueError):
         return None
+
+
+def _fetch_from_feeds(
+    feeds: list[tuple[str, str]],
+    cutoff: datetime,
+    max_items: int,
+) -> list[NewsItem]:
+    """Stahne vsechny zpravy z feedu bez filtrovani - Claude posudi relevanci sam."""
+    items: list[NewsItem] = []
+    for source_name, url in feeds:
+        try:
+            parsed = feedparser.parse(url)
+        except Exception as exc:
+            logger.warning("news: %s feed failed: %s", source_name, exc)
+            continue
+        if getattr(parsed, "bozo", False) and not parsed.entries:
+            logger.debug("news: %s prazdny/bozo feed", source_name)
+            continue
+        for entry in parsed.entries:
+            ts = _entry_timestamp(entry)
+            if ts is None or ts < cutoff:
+                continue
+            title   = getattr(entry, "title",   "").strip()
+            summary = getattr(entry, "summary", "").strip()
+            url_    = getattr(entry, "link",    "").strip()
+            if not title:
+                continue
+            items.append(NewsItem(
+                timestamp=ts,
+                source=source_name,
+                title=title[:512],
+                summary=summary[:2048],
+                url=url_[:1024],
+            ))
+    items.sort(key=lambda n: n.timestamp, reverse=True)
+    return items[:max_items]
+
+
+# ---------------------------------------------------------------------------
+# Verejna API
+# ---------------------------------------------------------------------------
+
+def fetch_news_for(
+    instrument: "InstrumentConfig",
+    hours: int = 24,
+    max_items: int = 15,
+) -> list[NewsItem]:
+    """Stahne zpravy pro dany instrument a preda je Claudovi bez filtrovani.
+
+    Pro crypto: CoinDesk + CoinTelegraph (prirozene crypto-specificke).
+    Pro stock:  Yahoo Finance + Finviz per-ticker RSS (prirozene per-symbol).
+    Claude sam posudi co je relevantni - zadne klicove slovo filtry.
+    """
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    if instrument.kind == "crypto":
+        feeds = CRYPTO_FEEDS
+    elif instrument.kind == "stock":
+        feeds = _stock_feeds(instrument.symbol.upper())
+    else:
+        logger.warning("news: nezname kind %r pro %s", instrument.kind, instrument.symbol)
+        return []
+
+    items = _fetch_from_feeds(feeds, cutoff, max_items)
+    logger.info(
+        "news [%s]: %d zprav za poslednich %dh z %d feedu",
+        instrument.symbol, len(items), hours, len(feeds),
+    )
+    return items
+
+
+def fetch_news(hours: int = 24, max_items: int = 20) -> list[NewsItem]:
+    """Zpetna kompatibilita - vsechny zpravy z crypto feedu pro BTC."""
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+    return _fetch_from_feeds(CRYPTO_FEEDS, cutoff, max_items)

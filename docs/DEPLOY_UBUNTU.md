@@ -88,20 +88,28 @@ Vyplň **všechno**:
 
 `Ctrl+O` uložit, `Ctrl+X` odejít.
 
-## 7. Smoke testy před spuštěním služby
+## 7. Testy před spuštěním služby
 
 ```bash
-# Data layer
-.venv/bin/python -m scripts.smoke_fetch
-# Měl bys vidět "Data layer OK" + posledních pár BTC svíček
+# Kompletni test vsech instrumentu: data, indikatory, scanner, news, sentiment
+# (-B = ignoruj .pyc cache, vzdy nacteme aktualni .py)
+.venv/bin/python -B -m scripts.test_all
+# Mel bys videt 40+ testu PASS. Pokud neco FAIL, cti chybovou hlasku.
+
+# Volitelne: otestuj jen jeden symbol
+.venv/bin/python -B -m scripts.test_all --symbol BTC/USD
+.venv/bin/python -B -m scripts.test_all --symbol NVDA
+
+# Data layer detail (vsechny instrumenty)
+.venv/bin/python -B -m scripts.smoke_fetch
 
 # Telegram
-.venv/bin/python -m scripts.telegram_test
-# Na telefon by měla přijít testovací zpráva
+.venv/bin/python -B -m scripts.telegram_test
+# Na telefon by mela prijit testovaci zprava
 
-# Jedno reálné rozhodnutí (~$0.02)
-.venv/bin/python -m scripts.ask_claude
-# Měl bys vidět Decision + Risk verdict v terminálu
+# Jedno realne rozhodnuti Claude (~$0.02)
+.venv/bin/python -B -m scripts.ask_claude
+# Mel bys videt Decision + Risk verdict v terminalu
 ```
 
 Pokud všechno funguje, pokračuj.
@@ -150,11 +158,16 @@ Telegram heartbeat ti během minuty od `systemctl start` pošle zprávu
 
 ## 10. Co dělá služba
 
-- Každou hodinu na **HH:00:30 UTC** spustí celou pipeline (scan → Claude → risk → DB → Telegram)
+- Každou hodinu na **HH:00:30 UTC** spustí pipeline pro **všechny instrumenty** (scan → Claude → risk → DB → Telegram)
+  - Instrumenty jsou definovány v `bot/config.py` → `INSTRUMENTS` — stačí přidat/odebrat/disable
+  - Každý instrument má vlastní H1 scanner, Claude kontext a news feed
 - Každé **00:05 UTC** pošle na Telegram daily summary
 - Při crashe se sama restartuje (Restart=always, max 5× za minutu)
 - Loguje do journald (vidíš přes `journalctl`)
 - Rotuje log soubory v `logs/` (5× 5MB)
+
+Přidat nový instrument: otevři `bot/config.py`, přidej `InstrumentConfig(...)` do `INSTRUMENTS`, restartuj službu.
+Dočasně vypnout instrument: nastav `enabled=False` v jeho `InstrumentConfig`.
 
 ## Užitečné příkazy
 
