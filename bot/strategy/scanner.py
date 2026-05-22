@@ -312,3 +312,17 @@ def scan(primary_df: pd.DataFrame, context_df: pd.DataFrame) -> list[ScannerSign
         last_ts = ts
 
     return signals
+loat(vol_ma20.get(ts, float("nan"))),
+            "h4_uptrend": float(bool(h4_up_on_h1.get(ts, False))),
+        }
+        signals.append(
+            ScannerSignal(
+                timestamp=ts,
+                filter=fired,
+                price=float(bar["close"]),
+                context=ctx,
+            )
+        )
+        last_ts = ts
+
+    return signals
