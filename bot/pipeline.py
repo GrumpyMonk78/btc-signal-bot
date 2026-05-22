@@ -30,6 +30,7 @@ from bot.llm.decider import (
 )
 from bot.risk.manager import evaluate as risk_evaluate
 from bot.storage import db as storage_db
+from bot.execution.alpaca import execute_signal, ExecutionResult
 from bot.storage.models import (
     ApprovedSignal,
     Decision,
@@ -60,6 +61,7 @@ class PipelineResult:
     decider_result: DeciderResult | None = None
     verdict: RiskVerdict | None = None
     signal_id: str | None = None
+    execution_result: ExecutionResult | None = None
     telegram_sent: bool = False
     error: str | None = None
 
@@ -271,26 +273,37 @@ def run_once(
         sent_to_telegram=False,
     )
 
+    # ── Execution (shadow=no-op, paper/live=real order) ───────────────────
+    approved = ApprovedSignal(
+        signal_id=signal_id,
+        instrument=symbol,
+        direction=d.direction,
+        entry_price=float(d.entry_price),
+        stop_loss=float(d.stop_loss),
+        take_profit=float(d.take_profit),
+        position_size_usd=verdict.position_size_usd,
+        position_size_btc=verdict.position_size_btc,
+        confidence=d.confidence,
+        r_r_ratio=verdict.r_r_ratio,
+        reasoning=d.reasoning,
+        key_risks=d.key_risks,
+        invalidation=d.invalidation,
+        created_at=now,
+    )
+    exec_result = execute_signal(approved)
+    logger.info("pipeline [%s] scan_id=%d: %s", symbol, scan_id, exec_result.summary())
+
+    # Uloz order_id do DB pokud byl order odoslan
+    if exec_result.submitted and exec_result.order_id:
+        conn.execute(
+            "UPDATE signals SET order_id=? WHERE signal_id=?",
+            (exec_result.order_id, signal_id),
+        )
+
     telegram_sent = False
     try:
         from bot.notify import telegram as tg
         if tg.is_configured():
-            approved = ApprovedSignal(
-                signal_id=signal_id,
-                instrument=symbol,
-                direction=d.direction,
-                entry_price=float(d.entry_price),
-                stop_loss=float(d.stop_loss),
-                take_profit=float(d.take_profit),
-                position_size_usd=verdict.position_size_usd,
-                position_size_btc=verdict.position_size_btc,
-                confidence=d.confidence,
-                r_r_ratio=verdict.r_r_ratio,
-                reasoning=d.reasoning,
-                key_risks=d.key_risks,
-                invalidation=d.invalidation,
-                created_at=now,
-            )
             telegram_sent = tg.send_signal(approved, d, client=telegram_client)
             if telegram_sent:
                 conn.execute(
@@ -312,5 +325,6 @@ def run_once(
         decider_result=decider_result,
         verdict=verdict,
         signal_id=signal_id,
+        execution_result=exec_result,
         telegram_sent=telegram_sent,
     )

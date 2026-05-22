@@ -68,7 +68,6 @@ async def _amain() -> int:
     from bot.config import get_enabled_instruments
     from bot.scheduler import run_scheduler
     from bot.storage import db as storage_db
-    from bot.storage.models import PortfolioState
 
     instruments = get_enabled_instruments()
     log.info("AI Trading Bot starting (mode=%s, model=%s, instruments=%s)",
@@ -79,17 +78,9 @@ async def _amain() -> int:
     log.info("DB ready at %s (schema_version=%d)",
              settings.db_path, storage_db.schema_version(conn))
 
-    # Phase 1: hardcoded portfolio stub. Phase 2 will query the Alpaca account.
-    portfolio = PortfolioState(
-        equity_usd=10_000.0,
-        open_positions=0,
-        daily_pnl_pct=0.0,
-        remaining_position_slots=settings.max_open_positions,
-    )
-    log.info("portfolio stub: equity=$%.2f, open=%d, daily_pnl=%+.2f%%",
-             portfolio.equity_usd, portfolio.open_positions, portfolio.daily_pnl_pct * 100)
-
-    await run_scheduler(conn=conn, portfolio=portfolio)
+    # Portfolio se fetchuje dynamicky pred kazdym kolem v scheduleru.
+    # V shadow rezimu: stub $10k. V paper/live: real Alpaca account.
+    await run_scheduler(conn=conn)
     return 0
 
 

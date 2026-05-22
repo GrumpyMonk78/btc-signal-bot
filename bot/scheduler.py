@@ -23,9 +23,9 @@ from apscheduler.triggers.cron import CronTrigger
 
 from bot.config import get_enabled_instruments, settings
 from bot.data.market import MarketDataProvider, provider_for
+from bot.execution.portfolio import fetch_portfolio_state
 from bot.pipeline import PipelineResult, run_once
 from bot.storage import db as storage_db
-from bot.storage.models import PortfolioState
 
 logger = logging.getLogger(__name__)
 
@@ -37,17 +37,24 @@ logger = logging.getLogger(__name__)
 def _run_all_instruments_job(
     *,
     conn: sqlite3.Connection,
-    portfolio: PortfolioState,
 ) -> None:
     """Synchronní job — APScheduler ho spustí v thread executoru.
 
     Pro každý aktivní instrument:
-      1. Vybere správný provider (crypto vs. stock)
-      2. Spustí run_once()
-      3. Zaloguje výsledek
+      1. Fetchne aktualni stav portfolia z Alpaca (nebo stub v shadow rezimu)
+      2. Vybere správný provider (crypto vs. stock)
+      3. Spustí run_once()
+      4. Zaloguje výsledek
 
     Chyba jednoho instrumentu neblokuje ostatní.
     """
+    # Portfolio se fetchuje na zacatku kazdeho kola — vzdycky aktualni stav
+    portfolio = fetch_portfolio_state()
+    logger.info(
+        "scheduler: portfolio equity=$%.2f open=%d daily_pnl=%+.2f%%",
+        portfolio.equity_usd, portfolio.open_positions, portfolio.daily_pnl_pct * 100,
+    )
+
     instruments = get_enabled_instruments()
     if not instruments:
         logger.warning("scheduler: žádné aktivní instrumenty v INSTRUMENTS seznamu")
@@ -145,9 +152,7 @@ def _heartbeat() -> None:
 
 async def run_scheduler(
     conn: sqlite3.Connection,
-    portfolio: PortfolioState,
-    # provider parametr zachován pro zpětnou kompatibilitu ale ignorován —
-    # nový kód používá provider_for() per instrument
+    # provider zachovan pro zpetnou kompatibilitu, ignorovan
     provider: MarketDataProvider | None = None,
 ) -> None:
     """Spustí scheduler a blokuje dokud nepřijde SIGINT/SIGTERM."""
@@ -157,7 +162,7 @@ async def run_scheduler(
     scheduler.add_job(
         _run_all_instruments_job,
         CronTrigger(minute=0, second=30, timezone="UTC"),
-        kwargs={"conn": conn, "portfolio": portfolio},
+        kwargs={"conn": conn},
         id="main_loop",
         name="pipeline — všechny instrumenty (H1 close)",
         max_instances=1,   # nepřekrývat pokud trvá >1h

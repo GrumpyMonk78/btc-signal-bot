@@ -45,7 +45,7 @@ logger = logging.getLogger(__name__)
 
 
 # Current migration level. Bump when you add tables / alter schema.
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -192,9 +192,16 @@ def _migrate(conn: sqlite3.Connection) -> None:
     row = cur.fetchone()
     if row is None:
         conn.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
-    elif row["version"] < SCHEMA_VERSION:
-        # No-op for V1; placeholder for future migrations
-        conn.execute("UPDATE schema_version SET version = ?", (SCHEMA_VERSION,))
+    else:
+        current = row["version"]
+        if current < 2:
+            # V2: add order_id to signals (Alpaca order ID for paper/live tracking)
+            try:
+                conn.execute("ALTER TABLE signals ADD COLUMN order_id TEXT")
+            except Exception:
+                pass  # column already exists
+            conn.execute("UPDATE schema_version SET version = 2")
+            logger.info("db: migrated to schema_version=2 (added signals.order_id)")
 
 
 def schema_version(conn: sqlite3.Connection) -> int:
