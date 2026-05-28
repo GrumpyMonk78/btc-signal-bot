@@ -64,7 +64,18 @@ def _signal(atr14: float = 420.0) -> ScannerSignal:
         filter="ema_pullback",
         price=70_000.0,
         context={"ema20": 70_000.0, "ema50": 69_500.0, "atr14": atr14,
-                 "vol_ma20": 0.5, "h4_uptrend": 1.0},
+                 "vol_ma20": 0.5, "h4_uptrend": 1.0, "h4_downtrend": 0.0},
+    )
+
+
+def _signal_short(atr14: float = 420.0) -> ScannerSignal:
+    """Scanner signal in H4 downtrend — for testing short direction."""
+    return ScannerSignal(
+        timestamp=pd.Timestamp("2026-05-21T05:00:00", tz="UTC"),
+        filter="ema_pullback_short",
+        price=70_000.0,
+        context={"ema20": 70_000.0, "ema50": 70_500.0, "atr14": atr14,
+                 "vol_ma20": 0.5, "h4_uptrend": 0.0, "h4_downtrend": 1.0},
     )
 
 
@@ -103,11 +114,12 @@ def test_skip_decision_returns_not_approved():
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Long-only veto
+# Direction / H4 alignment checks
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def test_short_decision_rejected():
+def test_short_rejected_in_h4_uptrend():
+    """SHORT signal must be rejected when H4 is in uptrend."""
     d = Decision(
         decision="enter",
         direction="short",
@@ -118,9 +130,35 @@ def test_short_decision_rejected():
         size_hint="normal",
         reasoning="x",
     )
+    # _signal() has h4_uptrend=1.0, h4_downtrend=0.0
     v = evaluate(d, _portfolio(), _signal(), now=_QUIET_NOW)
     assert v.approved is False
-    assert "not_long_only" in v.veto_codes
+    assert "direction_h4_mismatch" in v.veto_codes
+
+
+def test_short_approved_in_h4_downtrend():
+    """SHORT signal must be approved when H4 is in downtrend (all else ok)."""
+    d = Decision(
+        decision="enter",
+        direction="short",
+        entry_price=70_000.0,
+        stop_loss=70_700.0,   # SL above entry for short
+        take_profit=68_600.0, # TP below entry for short
+        confidence=8,
+        size_hint="normal",
+        reasoning="short in downtrend",
+    )
+    # _signal_short() has h4_downtrend=1.0
+    v = evaluate(d, _portfolio(), _signal_short(), now=_QUIET_NOW)
+    assert v.approved is True, f"expected approved, got veto_codes={v.veto_codes}"
+
+
+def test_long_rejected_in_h4_downtrend():
+    """LONG signal must be rejected when H4 is in downtrend."""
+    d = _decision(direction="long")
+    v = evaluate(d, _portfolio(), _signal_short(), now=_QUIET_NOW)
+    assert v.approved is False
+    assert "direction_h4_mismatch" in v.veto_codes
 
 
 # ─────────────────────────────────────────────────────────────────────────────

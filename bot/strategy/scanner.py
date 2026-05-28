@@ -275,7 +275,7 @@ def scan(primary_df: pd.DataFrame, context_df: pd.DataFrame) -> list[ScannerSign
     edge_breakout_s = _rising_edge(cond_breakout_s)
     edge_volume_s   = _rising_edge(cond_volume_s)
 
-    # Precompute indicators
+    # Precompute H1 indicators
     ema20    = ind.ema(primary_df["close"], H1_EMA_FAST)
     ema50    = ind.ema(primary_df["close"], H1_EMA_SLOW)
     ema200   = ind.ema(primary_df["close"], 200)
@@ -288,6 +288,26 @@ def scan(primary_df: pd.DataFrame, context_df: pd.DataFrame) -> list[ScannerSign
     stoch_df = ind.stoch_rsi(primary_df["close"])
     obv_s    = ind.obv(primary_df)
     rsi_div  = ind.rsi_divergence(primary_df)
+
+    # Precompute H4 indicators (smoother — better for trend strength & SL/TP)
+    # context_df is H4; we forward-fill to H1 index for aligned lookup
+    h4_ema20_raw  = ind.ema(context_df["close"], H4_EMA_FAST) if not context_df.empty else None
+    h4_ema50_raw  = ind.ema(context_df["close"], H4_EMA_SLOW) if not context_df.empty else None
+    h4_rsi_raw    = ind.rsi(context_df["close"], ATR_PERIOD) if not context_df.empty else None
+    h4_atr_raw    = ind.atr(context_df, ATR_PERIOD) if not context_df.empty else None
+    h4_macd_raw   = ind.macd(context_df["close"]) if not context_df.empty else None
+
+    def _h4_val(series_or_df, key=None, ts=None):
+        """Get H4 indicator value at or before H1 timestamp ts via ffill."""
+        if series_or_df is None:
+            return float("nan")
+        s = series_or_df[key] if key else series_or_df
+        # reindex to get the last H4 value <= ts
+        try:
+            subset = s[s.index <= ts]
+            return float(subset.iloc[-1]) if len(subset) else float("nan")
+        except Exception:
+            return float("nan")
 
     signals: list[ScannerSignal] = []
     last_ts = None
@@ -340,6 +360,14 @@ def scan(primary_df: pd.DataFrame, context_df: pd.DataFrame) -> list[ScannerSign
             "rsi_divergence": int(rsi_div.get(ts, 0)),
             "h4_uptrend":     float(bool(h4_up_on_h1.get(ts, False))),
             "h4_downtrend":   float(bool(h4_down_on_h1.get(ts, False))),
+            # H4 indicators — smoother, less noise than H1
+            "h4_ema20":       _h4_val(h4_ema20_raw, ts=ts),
+            "h4_ema50":       _h4_val(h4_ema50_raw, ts=ts),
+            "h4_rsi14":       _h4_val(h4_rsi_raw, ts=ts),
+            "h4_atr14":       _h4_val(h4_atr_raw, ts=ts),
+            "h4_macd":        _h4_val(h4_macd_raw, "macd", ts=ts),
+            "h4_macd_signal": _h4_val(h4_macd_raw, "signal", ts=ts),
+            "h4_macd_hist":   _h4_val(h4_macd_raw, "histogram", ts=ts),
         }
         signals.append(ScannerSignal(
             timestamp=ts,

@@ -5,15 +5,18 @@ This module has **veto power** over Claude. Even if Claude returns a
 confidence-10 enter decision with beautiful geometry, the risk manager
 will reject it if any of these checks fail:
 
-  1. Long-only (phase 1)                       — short → veto
-  2. decision == "enter"                       — skip → veto (trivially)
-  3. Direction is LONG                         — short → veto
+  1. decision == "enter"                       — skip → veto (trivially)
+  2. Direction matches H4 trend                — long only in h4_uptrend, short only in h4_downtrend
+  3. confidence >= MIN_CONFIDENCE              — Claude not confident enough
   4. confidence >= MIN_CONFIDENCE              — Claude not confident enough
   5. R:R >= MIN_RR                             — geometry too tight
   6. SL within sane ATR multiple               — 0.3..4 * ATR
   7. daily_pnl > DAILY_STOP_PCT                — daily drawdown breached
   8. open_positions < MAX_OPEN_POSITIONS       — already at max exposure
   9. No high-impact news within blackout       — FOMC/CPI/NFP within ±30 min
+
+Note: direction check (rule 2) reads h4_uptrend/h4_downtrend from scanner_signal.context
+— the same flags the scanner used to gate which filters fired.
 
 Position sizing is computed deterministically (not asked of Claude):
     position_usd = RISK_PER_TRADE × equity / SL_distance_pct
@@ -69,11 +72,30 @@ def _check_decision_is_enter(d: Decision) -> _Check:
     return _Check(True, "is_enter")
 
 
-def _check_long_only(d: Decision) -> _Check:
-    if d.direction != DecisionDirection.LONG:
-        return _Check(False, "not_long_only",
-                      f"direction={d.direction.value if d.direction else None}; phase 1 is long-only")
-    return _Check(True, "is_long")
+def _check_direction_matches_h4(d: Decision, scanner_signal: ScannerSignal | None) -> _Check:
+    """Direction must match H4 trend gate.
+
+    Long is only allowed when h4_uptrend=True.
+    Short is only allowed when h4_downtrend=True.
+    Prevents trading against the macro trend even if Claude suggests it.
+    """
+    if d.direction is None:
+        return _Check(False, "direction_none", "no direction in decision")
+
+    if scanner_signal is None:
+        # No H4 context available (e.g. test/mock without scanner) — skip check
+        return _Check(True, "direction_h4_skipped_no_scanner")
+
+    h4_up = bool(scanner_signal.context.get("h4_uptrend", False))
+    h4_down = bool(scanner_signal.context.get("h4_downtrend", False))
+
+    if d.direction == DecisionDirection.LONG and not h4_up:
+        return _Check(False, "direction_h4_mismatch",
+                      f"LONG signal but h4_uptrend=False (h4_downtrend={h4_down})")
+    if d.direction == DecisionDirection.SHORT and not h4_down:
+        return _Check(False, "direction_h4_mismatch",
+                      f"SHORT signal but h4_downtrend=False (h4_uptrend={h4_up})")
+    return _Check(True, "direction_h4_ok")
 
 
 def _check_confidence(d: Decision) -> _Check:
@@ -224,7 +246,7 @@ def evaluate(
     # Run all enter-path checks
     checks: list[_Check] = [
         _check_decision_is_enter(decision),
-        _check_long_only(decision),
+        _check_direction_matches_h4(decision, scanner_signal),
         _check_confidence(decision),
         _check_rr(decision),
         _check_atr_sanity(decision, scanner_signal),

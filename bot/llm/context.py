@@ -210,6 +210,45 @@ def render_context_for_prompt(ctx: DeciderContext) -> str:
                0: "none"}.get(div, "none")
     lines.append(f"  rsi_divergence:{div_str}")
 
+    # ── H4 indicators (smoother — less noise, better for trend/SL/TP) ────
+    h4_ema20 = n.get("h4_ema20", float("nan"))
+    h4_ema50 = n.get("h4_ema50", float("nan"))
+    h4_rsi   = n.get("h4_rsi14", float("nan"))
+    h4_atr   = n.get("h4_atr14", float("nan"))
+    h4_macd  = n.get("h4_macd", float("nan"))
+    h4_sig   = n.get("h4_macd_signal", float("nan"))
+    h4_hist  = n.get("h4_macd_hist", float("nan"))
+
+    def _fh(v: float, d: int = 2) -> str:
+        return "n/a" if v != v else f"{v:.{d}f}"
+
+    lines.append("")
+    lines.append("indicators_h4 (H4 timeframe — smoother, use for trend strength and SL/TP sizing):")
+    lines.append(f"  h4_ema20:      {_fh(h4_ema20)}   h4_ema50: {_fh(h4_ema50)}")
+
+    # H4 EMA cross signal
+    if h4_ema20 == h4_ema20 and h4_ema50 == h4_ema50:
+        cross = "EMA20 > EMA50 (bullish structure)" if h4_ema20 > h4_ema50 else "EMA20 < EMA50 (bearish structure)"
+        lines.append(f"  h4_ema_cross:  {cross}")
+
+    lines.append(f"  h4_rsi14:      {_fh(h4_rsi, 1)}", )
+    if h4_rsi == h4_rsi:
+        if h4_rsi >= 70:
+            lines.append("  h4_rsi_note:   OVERBOUGHT on H4 — strong trend or exhaustion")
+        elif h4_rsi <= 30:
+            lines.append("  h4_rsi_note:   OVERSOLD on H4 — strong downtrend or reversal zone")
+
+    if h4_atr == h4_atr and close:
+        h4_atr_pct = h4_atr / close * 100
+        lines.append(f"  h4_atr14:      {_fh(h4_atr)}  ({h4_atr_pct:.2f}% of price) — use for SL/TP on H4 scale")
+    else:
+        lines.append(f"  h4_atr14:      {_fh(h4_atr)}")
+
+    lines.append(f"  h4_macd:       {_fh(h4_macd, 4)}   h4_signal: {_fh(h4_sig, 4)}   h4_hist: {_fh(h4_hist, 4)}")
+    if h4_hist == h4_hist:
+        momentum = "bullish momentum" if h4_hist > 0 else "bearish momentum"
+        lines.append(f"  h4_macd_note:  histogram {momentum} ({'increasing' if abs(h4_hist) > 0 else 'flat'})")
+
     # ── Bars ─────────────────────────────────────────────────────────────
     lines.append("")
     lines.append(f"bars_primary (last {len(ctx.bars_primary)} H1, oldest first):")
