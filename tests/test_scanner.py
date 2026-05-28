@@ -318,3 +318,192 @@ def test_pullback_filter_requires_prior_extension():
     h4_on = _all_true_h4_flag(primary)
     cond = sc.filter_ema_pullback(primary, h4_on)
     assert not cond.any()
+
+
+# ---------------------------------------------------------------------------
+# Short filter helpers
+# ---------------------------------------------------------------------------
+
+def _all_true_h4_down_flag(primary_df):
+    """H4 downtrend gate always True (for unit tests)."""
+    return pd.Series(True, index=primary_df.index, name="h4_downtrend")
+
+
+# ---------------------------------------------------------------------------
+# h4_downtrend_series
+# ---------------------------------------------------------------------------
+
+def test_h4_downtrend_detected_on_falling_series():
+    n = 300
+    idx = _h4_index(n)
+    closes = np.linspace(200, 100, n)  # falling from 200 to 100
+    df = pd.DataFrame(
+        {"open": closes, "high": closes + 1, "low": closes - 1,
+         "close": closes, "volume": [1.0] * n, "vwap": closes, "trade_count": [10] * n},
+        index=idx,
+    )
+    flag = sc.h4_downtrend_series(df)
+    assert bool(flag.iloc[-1]) is True
+    assert bool(flag.iloc[10]) is False  # early bars before EMA200 warms up
+
+
+def test_h4_uptrend_and_downtrend_are_mutually_exclusive():
+    """When close > EMA200, uptrend=True and downtrend=False."""
+    n = 300
+    idx = _h4_index(n)
+    closes = np.linspace(100, 200, n)
+    df = pd.DataFrame(
+        {"open": closes, "high": closes + 1, "low": closes - 1,
+         "close": closes, "volume": [1.0] * n, "vwap": closes, "trade_count": [10] * n},
+        index=idx,
+    )
+    up = sc.h4_uptrend_series(df)
+    down = sc.h4_downtrend_series(df)
+    # Where uptrend is True, downtrend must be False (and vice versa)
+    assert not (up & down).any()
+
+
+# ---------------------------------------------------------------------------
+# Short breakout filter
+# ---------------------------------------------------------------------------
+
+def test_breakout_atr_short_fires_on_engineered_breakdown():
+    n_quiet = 80
+    base = _flat_bars(n_quiet, price=100.0)
+
+    # A decisive bearish bar breaking below 20h low with expansion
+    breakdown_ts = base.index[-1] + timedelta(hours=1)
+    breakdown_row = pd.DataFrame(
+        {
+            "open": [100.0],
+            "high": [100.1],
+            "low": [95.0],    # well below any prior low
+            "close": [95.2],  # body (100-95.2)/5.1 = 0.94 >= 0.6, bearish
+            "volume": [10.0],
+            "vwap": [98.0],
+            "trade_count": [100],
+        },
+        index=[breakdown_ts],
+    )
+    primary = pd.concat([base, breakdown_row])
+    cond = sc.filter_breakout_atr_short(primary, _all_true_h4_down_flag(primary))
+    assert bool(cond.iloc[-1]) is True
+    assert not cond.iloc[:-1].any()
+
+
+def test_breakout_atr_short_does_not_fire_without_h4_downtrend():
+    """Short breakout must NOT fire when H4 gate is off."""
+    base = _flat_bars(80, price=100.0)
+    breakdown_ts = base.index[-1] + timedelta(hours=1)
+    breakdown_row = pd.DataFrame(
+        {"open": [100.0], "high": [100.1], "low": [95.0], "close": [95.2],
+         "volume": [10.0], "vwap": [98.0], "trade_count": [100]},
+        index=[breakdown_ts],
+    )
+    primary = pd.concat([base, breakdown_row])
+    h4_off = pd.Series(False, index=primary.index, name="h4_downtrend")
+    cond = sc.filter_breakout_atr_short(primary, h4_off)
+    assert not cond.any()
+
+
+# ---------------------------------------------------------------------------
+# Short volume absorption filter
+# ---------------------------------------------------------------------------
+
+def test_volume_absorption_short_fires_on_bearish_spike():
+    base = _flat_bars(40, price=100.0)
+    spike_ts = base.index[-1] + timedelta(hours=1)
+    # Volume 10x baseline, close near bottom of range, bearish bar
+    spike_row = pd.DataFrame(
+        {
+            "open": [100.0],
+            "high": [100.2],
+            "low": [99.0],
+            "close": [99.05],  # close_pos = (99.05-99.0)/1.2 = 0.04 <= 0.34
+            "volume": [10.0],
+            "vwap": [99.6],
+            "trade_count": [100],
+        },
+        index=[spike_ts],
+    )
+    primary = pd.concat([base, spike_row])
+    cond = sc.filter_volume_absorption_short(primary, _all_true_h4_down_flag(primary))
+    assert bool(cond.iloc[-1]) is True
+
+
+def test_volume_absorption_short_does_not_fire_without_h4_downtrend():
+    base = _flat_bars(40, price=100.0)
+    spike_ts = base.index[-1] + timedelta(hours=1)
+    spike_row = pd.DataFrame(
+        {"open": [100.0], "high": [100.2], "low": [99.0], "close": [99.05],
+         "volume": [10.0], "vwap": [99.6], "trade_count": [100]},
+        index=[spike_ts],
+    )
+    primary = pd.concat([base, spike_row])
+    h4_off = pd.Series(False, index=primary.index, name="h4_downtrend")
+    cond = sc.filter_volume_absorption_short(primary, h4_off)
+    assert not cond.any()
+
+
+# ---------------------------------------------------------------------------
+# scan() short signals end-to-end
+# ---------------------------------------------------------------------------
+
+def test_scan_produces_short_signal_in_h4_downtrend():
+    """In a clear H4 downtrend, a breakdown bar should produce a short signal."""
+    n_quiet = 80
+    base = _flat_bars(n_quiet, price=100.0)
+
+    breakdown_ts = base.index[-1] + timedelta(hours=1)
+    breakdown_row = pd.DataFrame(
+        {"open": [100.0], "high": [100.1], "low": [95.0], "close": [95.2],
+         "volume": [10.0], "vwap": [98.0], "trade_count": [100]},
+        index=[breakdown_ts],
+    )
+    primary = pd.concat([base, breakdown_row])
+
+    # H4 downtrend context: 250 bars falling from 200 to 80 (close < EMA200)
+    context_end = primary.index[-1] + pd.Timedelta(hours=4)
+    context_idx = pd.date_range(end=context_end, periods=250, freq="4h", tz="UTC")
+    ctx_closes = np.linspace(200.0, 80.0, 250)
+    context = pd.DataFrame(
+        {"open": ctx_closes, "high": ctx_closes + 1, "low": ctx_closes - 1,
+         "close": ctx_closes, "volume": [1.0] * 250, "vwap": ctx_closes,
+         "trade_count": [10] * 250},
+        index=context_idx,
+    )
+
+    signals = sc.scan(primary, context)
+    assert len(signals) == 1
+    assert signals[0].filter == "breakout_atr_short"
+    assert signals[0].context["h4_downtrend"] == 1.0
+    assert signals[0].context["h4_uptrend"] == 0.0
+
+
+def test_scan_no_long_signals_in_h4_downtrend():
+    """Long filters must NOT fire when H4 is in downtrend."""
+    n_quiet = 80
+    base = _flat_bars(n_quiet, price=100.0)
+    # Append a bullish breakout bar
+    breakout_ts = base.index[-1] + timedelta(hours=1)
+    breakout_row = pd.DataFrame(
+        {"open": [100.05], "high": [105.0], "low": [100.0], "close": [104.8],
+         "volume": [10.0], "vwap": [102.0], "trade_count": [100]},
+        index=[breakout_ts],
+    )
+    primary = pd.concat([base, breakout_row])
+
+    # H4 downtrend context
+    context_end = primary.index[-1] + pd.Timedelta(hours=4)
+    context_idx = pd.date_range(end=context_end, periods=250, freq="4h", tz="UTC")
+    ctx_closes = np.linspace(200.0, 80.0, 250)
+    context = pd.DataFrame(
+        {"open": ctx_closes, "high": ctx_closes + 1, "low": ctx_closes - 1,
+         "close": ctx_closes, "volume": [1.0] * 250, "vwap": ctx_closes,
+         "trade_count": [10] * 250},
+        index=context_idx,
+    )
+
+    signals = sc.scan(primary, context)
+    long_signals = [s for s in signals if not s.filter.endswith("_short")]
+    assert long_signals == [], f"Expected no long signals in downtrend, got: {long_signals}"

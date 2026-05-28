@@ -394,14 +394,17 @@ def _print_summary(rows: list[BacktestRow]) -> None:
         losses  = [r for r in enters_with_trade if r.outcome == "hit_sl"]
         timeout = [r for r in enters_with_trade if r.outcome == "timeout"]
 
+        longs  = [r for r in enters_with_trade if not r.filter_name.endswith("_short")]
+        shorts = [r for r in enters_with_trade if r.filter_name.endswith("_short")]
+
         avg_pnl   = sum(r.pnl_pct for r in enters_with_trade) / len(enters_with_trade)
         avg_win   = sum(r.pnl_pct for r in wins)   / max(len(wins), 1)
         avg_loss  = sum(r.pnl_pct for r in losses) / max(len(losses), 1)
         avg_hours = sum(r.exit_hours for r in enters_with_trade if r.exit_hours) / max(len(enters_with_trade), 1)
 
         print()
-        print(f"  SL/TP simulace (bar-by-bar, long, max 48h timeout):")
-        print(f"    Trades:         {len(enters_with_trade)}")
+        print(f"  SL/TP simulace (bar-by-bar, max 48h timeout):")
+        print(f"    Trades:         {len(enters_with_trade)}  (long: {len(longs)}, short: {len(shorts)})")
         print(f"    TP zasaženo:    {len(wins)}  ({len(wins)/max(len(enters_with_trade),1)*100:.0f}%)")
         print(f"    SL zasaženo:    {len(losses)}  ({len(losses)/max(len(enters_with_trade),1)*100:.0f}%)")
         print(f"    Timeout:        {len(timeout)}")
@@ -415,6 +418,15 @@ def _print_summary(rows: list[BacktestRow]) -> None:
         expectancy = win_rate * avg_win + (1 - win_rate) * avg_loss
         print(f"    Expectancy:     {expectancy:+.2f}%  "
               f"({'✓ pozitivní' if expectancy > 0 else '✗ negativní'})")
+
+        # Per-direction breakdown
+        if longs and shorts:
+            long_wins = [r for r in longs if r.outcome == "hit_tp"]
+            short_wins = [r for r in shorts if r.outcome == "hit_tp"]
+            long_pnl = sum(r.pnl_pct for r in longs) / len(longs)
+            short_pnl = sum(r.pnl_pct for r in shorts) / len(shorts)
+            print(f"    Long avg PnL:   {long_pnl:+.2f}%  WR={len(long_wins)/len(longs)*100:.0f}%")
+            print(f"    Short avg PnL:  {short_pnl:+.2f}%  WR={len(short_wins)/len(shorts)*100:.0f}%")
 
     # Detail tabulka
     print()

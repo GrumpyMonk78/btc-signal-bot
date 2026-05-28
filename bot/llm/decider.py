@@ -23,7 +23,7 @@ from pydantic import ValidationError
 
 from bot.config import settings
 from bot.llm.context import render_context_for_prompt
-from bot.llm.prompts import active_prompt, EXAMPLES_DECISION_V2
+from bot.llm.prompts import active_prompt, EXAMPLES_DECISION_V2, EXAMPLES_DECISION_V4
 from bot.storage.models import DeciderContext, Decision
 
 logger = logging.getLogger(__name__)
@@ -161,11 +161,13 @@ def decide(
 
     # Few-shot příklady — také cacheable (mění se jen s verzí promptu)
     few_shot_messages: list[dict] = []
-    for i, ex in enumerate(EXAMPLES_DECISION_V2):
+    # Use V4 examples if available (includes short examples), fall back to V2
+    _examples = EXAMPLES_DECISION_V4 if EXAMPLES_DECISION_V4 else EXAMPLES_DECISION_V2
+    for i, ex in enumerate(_examples):
         few_shot_messages.append({"role": "user", "content": ex["user"]})
         # Poslední few-shot assistant blok označíme jako cacheable — tím
         # cachujeme celý prefix (system + few-shot) najednou.
-        is_last = (i == len(EXAMPLES_DECISION_V2) - 1)
+        is_last = (i == len(_examples) - 1)
         assistant_content: Any = (
             [{"type": "text", "text": json.dumps(ex["assistant"]),
               "cache_control": {"type": "ephemeral"}}]

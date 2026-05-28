@@ -614,35 +614,163 @@ context that a deterministic scanner cannot see.
 
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# V3.1 — Time-based exit rule (rule 12 injected before Output schema)
-# ─────────────────────────────────────────────────────────────────────────────
 
-_RULE_12 = (
+# ---------------------------------------------------------------------------
+# V4.0 -- Short selling + news weight
+# ---------------------------------------------------------------------------
+# Builds on V3.1 (time exit). Adds:
+#   - Bidirectional trading: long when H4 > EMA200, short when H4 < EMA200
+#   - News weight: confirming news <6h -> confidence +1; opposing -> skip
+#   - Short-specific few-shot examples
+#   - active_prompt() -> v4.0.0
+# ---------------------------------------------------------------------------
+
+_SHORT_AND_NEWS_RULES = (
     "\n12. **Time-based exit (dynamic).** When recommending an entry, always include"
-    " in `invalidation` a time exit clause: \'Time exit: if price has not moved at"
-    " least 30%% of the distance to TP within 12 bars (12 hours), close position"
-    " at market.\' Example: if entry=100, TP=103 (distance=3), then after 12h"
-    " price must be at or above 100.90 (entry + 30%% x 3) -- otherwise exit."
-    " This prevents lingering trades when trigger momentum has faded.\n"
+    " in `invalidation`: \'Time exit: if price has not moved at least 30% of the"
+    " distance to TP within 12 bars (12 hours), close at market.\'"
+    " This prevents lingering trades when momentum has faded.\n"
+    "\n13. **Bidirectional trading.**"
+    " If `h4_downtrend` is True (H4 close < EMA200), only SHORT entries are valid."
+    " If `h4_uptrend` is True (H4 close > EMA200), only LONG entries are valid."
+    " Never recommend a long when H4 is in downtrend or vice versa.\n"
+    "\n14. **News weight (critical rule).**"
+    " Scan `news_last_24h` for items published within the last 6 hours."
+    " If a recent headline CONFIRMS the trade direction (bullish news for long,"
+    " bearish news for short): raise confidence by +1."
+    " If a recent headline CONTRADICTS the direction (bearish news for long,"
+    " bullish news for short, earnings surprise against direction,"
+    " Fed/macro surprise): recommend SKIP regardless of technical setup."
+    " If no recent news: confidence unchanged. Do not penalise absence of news.\n"
+    "\n15. **Short geometry.**"
+    " For short entries: stop_loss > entry_price > take_profit."
+    " R:R = |entry - TP| / |SL - entry| >= 1.8 required.\n"
 )
 
-SYSTEM_DECIDER_V3_1 = SYSTEM_DECIDER_V3.replace(
-    "# Output schema", _RULE_12 + "# Output schema", 1
+SYSTEM_DECIDER_V4 = SYSTEM_DECIDER_V3.replace(
+    "# Output schema", _SHORT_AND_NEWS_RULES + "# Output schema", 1
 )
 
+# Few-shot examples for V4 -- adds short examples to V2 set
+EXAMPLES_DECISION_V4 = list(EXAMPLES_DECISION_V2) + [
+    {
+        "user": """<context>
+instrument: TSLA
+as_of: 2026-01-10T16:00:00Z
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Versioning helpers — V3.1 override
-# ─────────────────────────────────────────────────────────────────────────────
+scanner_trigger:
+  filter: ema_pullback_short
+  timestamp: 2026-01-10T16:00:00Z
+  price: 438.50
+
+indicators:
+  h4_uptrend:    False  (close < H4 EMA200)
+  h4_downtrend:  True   (close < H4 EMA200)
+  ema20:         441.20   ema50: 448.30   ema200_h1: 460.10
+  atr14:         4.20  (0.96% of price)
+  bb_pct_b:      0.680  bb_width: 0.0380
+  vwap:          440.10  (price is below VWAP by 0.36%)
+  rsi14:         42.1
+  stoch_rsi_k:   35.2   stoch_rsi_d: 38.1
+  macd:          -1.8200   signal: -1.2100   hist: -0.6100
+  volume:        82000  1.4x avg
+  obv:           -12450000
+  rsi_divergence: none
+
+bars_primary (last 5 H1, oldest first):
+  01-10T12:00Z O=442.10 H=443.50 L=438.80 C=439.20 V=65000
+  01-10T13:00Z O=439.20 H=440.10 L=437.90 C=438.60 V=58000
+  01-10T14:00Z O=438.60 H=441.80 L=438.10 C=441.50 V=71000
+  01-10T15:00Z O=441.50 H=441.90 L=438.20 C=438.70 V=68000
+  01-10T16:00Z O=438.70 H=439.80 L=437.50 C=438.50 V=82000
+
+news_last_24h:
+  - 01-10T15:30Z [Yahoo Finance] TSLA misses Q4 delivery estimates by 8%
+  - 01-10T14:00Z [Seeking Alpha] Analysts cut TSLA price targets after guidance miss
+
+sentiment: F&G=28 (Fear), 7d trend=-3
+</context>""",
+        "assistant": {
+            "decision": "enter",
+            "direction": "short",
+            "entry_price": 438.50,
+            "stop_loss": 443.20,
+            "take_profit": 429.80,
+            "confidence": 8,
+            "size_hint": "normal",
+            "reasoning": "H4 downtrend confirmed (close < H4 EMA200=460). ema_pullback_short: price bounced to EMA20=441.2 and rejected, now 438.5 below EMA20. EMA20 < EMA50 (441 < 448) confirms downtrend structure. MACD histogram -0.61 and falling, OBV -12.45M bearish. Recent news is strongly confirming: TSLA missed Q4 deliveries by 8% (15:30Z, <1h ago) and analysts cut targets. News confirmation raises confidence to 8. SL above EMA20 at 443.2, TP at 429.8 = R:R 1.85.",
+            "invalidation": "Close above EMA20 (441.20) or positive news catalyst. Time exit: if price has not moved at least 30% of distance to TP within 12h, close at market."
+        }
+    },
+    {
+        "user": """<context>
+instrument: BTC/USD
+as_of: 2026-02-15T09:00:00Z
+
+scanner_trigger:
+  filter: breakout_atr_short
+  timestamp: 2026-02-15T09:00:00Z
+  price: 68200.00
+
+indicators:
+  h4_uptrend:    False  (close < H4 EMA200)
+  h4_downtrend:  True   (close < H4 EMA200)
+  ema20:         69100.00   ema50: 71500.00   ema200_h1: 74200.00
+  atr14:         820.00  (1.20% of price)
+  bb_pct_b:      0.082  bb_width: 0.0520
+  vwap:          69400.00  (price is below VWAP by 1.75%)
+  rsi14:         33.2
+  stoch_rsi_k:   18.4   stoch_rsi_d: 22.1  <- OVERSOLD
+  macd:          -580.00   signal: -410.00   hist: -170.00
+  volume:        2.8100  2.3x avg
+  obv:           -48200
+  rsi_divergence: none
+
+bars_primary (last 5 H1, oldest first):
+  02-15T05:00Z O=70100 H=70400 L=69800 C=69900 V=1.2100
+  02-15T06:00Z O=69900 H=70050 L=69200 C=69300 V=1.5800
+  02-15T07:00Z O=69300 H=69500 L=68600 C=68700 V=1.9200
+  02-15T08:00Z O=68700 H=68900 L=68100 C=68250 V=2.1400
+  02-15T09:00Z O=68250 H=68350 L=67900 C=68200 V=2.8100
+
+news_last_24h:
+  - 02-15T08:30Z [CoinDesk] SEC rejects spot BTC ETF amendment, market sells off
+  - 02-15T07:00Z [CoinTelegraph] Bitcoin technical breakdown below key support
+
+sentiment: F&G=19 (Extreme Fear), 7d trend=-8
+
+portfolio:
+  equity_usd: 10000.00
+  open_positions: 0
+  remaining_position_slots: 5
+</context>""",
+        "assistant": {
+            "decision": "enter",
+            "direction": "short",
+            "entry_price": 68200.0,
+            "stop_loss": 69500.0,
+            "take_profit": 65800.0,
+            "confidence": 7,
+            "size_hint": "normal",
+            "reasoning": "H4 downtrend confirmed (close < H4 EMA200). breakout_atr_short: BTC broke below 20h low at 68300 with 2.3x volume and decisive bearish body. MACD histogram -170 and accelerating down. OBV deeply negative. News: SEC rejected ETF amendment 30min ago (08:30Z) -- confirming bearish momentum, +1 confidence. Stoch RSI oversold (18.4) is a caution flag but in strong downtrends oversold can stay oversold. F&G Extreme Fear (19) consistent with panic selling. SL above prior resistance 69500, TP at 65800 = R:R 1.85.",
+            "invalidation": "Close above 69500 (prior H1 high). Time exit: if price has not moved at least 30% of distance to TP within 12h, close at market."
+        }
+    },
+]
+
+
+# ---------------------------------------------------------------------------
+# Versioning helpers
+# ---------------------------------------------------------------------------
 
 
 def prompt_hash(text: str) -> str:
     """Short stable hash for DB indexing. First 12 hex chars of SHA-256."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+    import hashlib as _hashlib
+    return _hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
 
 
 def active_prompt() -> tuple[str, str, str]:
     """Return (version, text, hash) of the currently active system prompt."""
-    text = SYSTEM_DECIDER_V3_1
-    return ("v3.1.0", text, prompt_hash(text))
+    text = SYSTEM_DECIDER_V4
+    return ("v4.0.0", text, prompt_hash(text))

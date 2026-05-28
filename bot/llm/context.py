@@ -153,8 +153,10 @@ def render_context_for_prompt(ctx: DeciderContext) -> str:
         return f"{v:.{decimals}f}"
 
     # Trend & MAs
-    lines.append(f"  h4_uptrend:    {bool(n.get('h4_uptrend', 0))}  "
-                 f"(close > H4 EMA200)")
+    h4_up = bool(n.get("h4_uptrend", 0))
+    h4_down = bool(n.get("h4_downtrend", 0))
+    trend_label = "UPTREND (long signals)" if h4_up else ("DOWNTREND (short signals)" if h4_down else "NEUTRAL")
+    lines.append(f"  h4_uptrend:    {h4_up}  h4_downtrend: {h4_down}  -> {trend_label}")
     lines.append(f"  ema20:         {_f('ema20')}   ema50: {_f('ema50')}   ema200_h1: {_f('ema200')}")
 
     # Volatility

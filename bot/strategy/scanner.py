@@ -1,15 +1,24 @@
 """
-Cheap, deterministic technical filters for BTC/USD long-only on H1.
+Technical filters for H1 -- both long AND short directions.
 
 The scanner is a *trigger*, not a decision-maker. Its job is to answer:
-"Is this moment worth spending Claude tokens on?" — high recall, low
+"Is this moment worth spending Claude tokens on?" -- high recall, low
 precision is the desired profile. Claude + the risk manager make the
 actual go/no-go call downstream.
 
-Three filters, combined with OR, ALL gated by H4 long-term uptrend (close > EMA200):
-  1. EMA pullback from a stretched position
-  2. Range breakout with ATR expansion
-  3. Volume spike with bullish absorption
+Six filters (3 long + 3 short), gated by H4 trend direction:
+  Long gate:  H4 close > EMA200  -> fires long filters only
+  Short gate: H4 close < EMA200  -> fires short filters only
+
+Long filters:
+  1. ema_pullback         -- pullback to EMA20 from above
+  2. breakout_atr         -- breakout above 20h high with ATR expansion
+  3. volume_absorption    -- volume spike, close in upper third of bar
+
+Short filters (mirror image):
+  4. ema_pullback_short      -- bounce to EMA20 from below
+  5. breakout_atr_short      -- breakdown below 20h low with ATR expansion
+  6. volume_absorption_short -- volume spike, close in lower third of bar
 
 API
 ---
@@ -18,11 +27,8 @@ API
 Transition + cooldown
 ---------------------
 - A filter fires on bar `t` only when its condition is True at `t` and
-  was False at `t-1` (rising edge). Prevents repeated triggers while a
-  filter stays on for many bars.
-- A minimum 4-hour cooldown between any two signals is enforced by
-  `scan` — even if a different filter would otherwise fire, it's
-  suppressed if the previous signal was within the cooldown window.
+  was False at `t-1` (rising edge).
+- A minimum 4-hour cooldown between any two signals is enforced by scan().
 """
 from __future__ import annotations
 
@@ -35,131 +41,95 @@ import pandas as pd
 from bot.strategy import indicators as ind
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Tunable parameters (kept here for visibility; can be moved to config later)
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Tunable parameters
+# ---------------------------------------------------------------------------
 
-# Trend definition (H4)
 H4_EMA_FAST = 20
 H4_EMA_SLOW = 50
-H4_EMA_LONG = 200  # Trend gate: close > EMA200 (dlouhodobý uptrend)
+H4_EMA_LONG = 200
 
-# H1 pullback parameters
 H1_EMA_FAST = 20
 H1_EMA_SLOW = 50
-PULLBACK_TOUCH_TOL = 0.002       # bar's low must come within 0.2% of EMA20 (or briefly below)
-PULLBACK_PRIOR_LOOKBACK = 5      # within last N bars there must have been a "stretched" close…
-PULLBACK_STRETCH_ATR = 0.5       # …defined as close > EMA20 + this many ATRs above EMA20.
-# Rationale: without this, the filter fires repeatedly while price oscillates
-# around EMA20. We want a *true* pullback from a stretched position, not noise.
+PULLBACK_TOUCH_TOL = 0.002
+PULLBACK_PRIOR_LOOKBACK = 5
+PULLBACK_STRETCH_ATR = 0.5
 
-# Breakout parameters
-BREAKOUT_LOOKBACK = 20           # 20 H1 bars ≈ 20h
+BREAKOUT_LOOKBACK = 20
 ATR_PERIOD = 14
-ATR_EXPANSION_MULT = 1.2         # current ATR must be > 1.2× ATR_MA_50
+ATR_EXPANSION_MULT = 1.2
 ATR_MA_PERIOD = 50
-BREAKOUT_BODY_MIN = 0.6          # |close-open|/range >= 0.6
+BREAKOUT_BODY_MIN = 0.6
 
-# Volume spike parameters
 VOLUME_MA_PERIOD = 20
 VOLUME_SPIKE_MULT = 2.0
-CLOSE_POS_MIN = 0.66             # close in upper third of bar's range
+CLOSE_POS_MIN = 0.66
 
-# Cooldown between any two triggers
 COOLDOWN = timedelta(hours=4)
 
+FilterName = Literal[
+    "ema_pullback", "breakout_atr", "volume_absorption",
+    "ema_pullback_short", "breakout_atr_short", "volume_absorption_short",
+]
 
-FilterName = Literal["ema_pullback", "breakout_atr", "volume_absorption"]
 
-
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
 # Output type
-# ─────────────────────────────────────────────────────────────────────────────
-
+# ---------------------------------------------------------------------------
 
 @dataclass(frozen=True)
 class ScannerSignal:
-    """A scanner trigger on a specific bar.
-
-    Carries the bar timestamp, the filter that fired, and a dict of numeric
-    context (current price, ATR, EMA values, etc.) so downstream code can
-    log it and Claude can see what made the scanner wake up.
-    """
-
     timestamp: pd.Timestamp
     filter: FilterName
     price: float
     context: dict = field(default_factory=dict)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# H4 trend gate
-# ─────────────────────────────────────────────────────────────────────────────
-
+# ---------------------------------------------------------------------------
+# H4 trend gates
+# ---------------------------------------------------------------------------
 
 def h4_uptrend_series(context_df: pd.DataFrame) -> pd.Series:
-    """Per-H4-bar boolean: 'we are in a long-term uptrend'.
-
-    Definition: close > EMA200 (dlouhodobý uptrend).
-    Původní podmínka (close > EMA50 AND EMA20 > EMA50) byla příliš přísná
-    a blokovala příliš mnoho setupů v sideways/konsolidaci.
-    Returns a Series indexed by H4 timestamps.
-    """
+    """H4 close > EMA200 -> long gate."""
     if context_df.empty:
         return pd.Series(dtype=bool, name="h4_uptrend")
-
     ema_long = ind.ema(context_df["close"], H4_EMA_LONG)
-    cond = context_df["close"] > ema_long
-    return cond.fillna(False).rename("h4_uptrend")
+    return (context_df["close"] > ema_long).fillna(False).rename("h4_uptrend")
+
+
+def h4_downtrend_series(context_df: pd.DataFrame) -> pd.Series:
+    """H4 close < EMA200 -> short gate."""
+    if context_df.empty:
+        return pd.Series(dtype=bool, name="h4_downtrend")
+    ema_long = ind.ema(context_df["close"], H4_EMA_LONG)
+    return (context_df["close"] < ema_long).fillna(False).rename("h4_downtrend")
 
 
 def align_h4_to_h1(h4_flag: pd.Series, h1_index: pd.DatetimeIndex) -> pd.Series:
-    """For each H1 timestamp, return the most-recent *closed* H4 flag.
-
-    `reindex(method='ffill')` gives us forward-fill, which uses the H4 bar
-    that opened at-or-before each H1 bar. That's the right semantics — we
-    use the H4 trend that was known when the H1 bar opened.
-    """
+    """Forward-fill H4 flag to H1 index."""
     if len(h4_flag) == 0:
-        return pd.Series(False, index=h1_index, name="h4_uptrend")
+        return pd.Series(False, index=h1_index, name=h4_flag.name)
     return h4_flag.reindex(h1_index, method="ffill").fillna(False)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Filters — each returns a bool Series aligned to primary_df.index
-# All filters are gated by H4 uptrend (long-only bot).
-# ─────────────────────────────────────────────────────────────────────────────
-
+# ---------------------------------------------------------------------------
+# Long filters
+# ---------------------------------------------------------------------------
 
 def filter_ema_pullback(primary_df: pd.DataFrame, h4_up_on_h1: pd.Series) -> pd.Series:
-    """EMA pullback from a stretched position, in H4 uptrend.
-
-    Trigger when:
-      - H4 trend is up (gate)
-      - Within the last PULLBACK_PRIOR_LOOKBACK bars (excluding current),
-        price was *stretched* above EMA20 by at least PULLBACK_STRETCH_ATR × ATR
-      - H1 bar's low touched within tolerance of EMA20 (or briefly below)
-      - H1 close is back above EMA20
-      - EMA20 > EMA50 on H1 (i.e. H1 structure isn't broken)
-    """
+    """EMA pullback from a stretched position, in H4 uptrend."""
     close = primary_df["close"]
     low = primary_df["low"]
     ema_fast = ind.ema(close, H1_EMA_FAST)
     ema_slow = ind.ema(close, H1_EMA_SLOW)
     atr14 = ind.atr(primary_df, ATR_PERIOD)
 
-    # Was price stretched above EMA20 by >= 0.5 ATR within the recent window?
-    # We compare *prior* bars only (shift by 1) so the trigger bar itself
-    # doesn't count as its own stretch.
     stretched = close > (ema_fast + PULLBACK_STRETCH_ATR * atr14)
     was_stretched_recently = (
         stretched.shift(1)
         .rolling(window=PULLBACK_PRIOR_LOOKBACK, min_periods=1)
-        .max()
-        .fillna(0)
-        .astype(bool)
+        .max().fillna(0).astype(bool)
     )
-
     touched = low <= ema_fast * (1 + PULLBACK_TOUCH_TOL)
     held = close > ema_fast
     structure_ok = ema_fast > ema_slow
@@ -169,20 +139,10 @@ def filter_ema_pullback(primary_df: pd.DataFrame, h4_up_on_h1: pd.Series) -> pd.
 
 
 def filter_breakout_atr(primary_df: pd.DataFrame, h4_up_on_h1: pd.Series) -> pd.Series:
-    """Range breakout with ATR expansion and decisive body, gated by H4 uptrend.
-
-    Trigger when:
-      - H4 trend is up (gate)
-      - Bar's close > rolling max of the prior `BREAKOUT_LOOKBACK` highs
-      - Current ATR > ATR_EXPANSION_MULT × SMA of ATR over ATR_MA_PERIOD
-      - Body / range >= BREAKOUT_BODY_MIN (no upper wick shenanigans)
-      - Bullish bar (close > open)
-    """
+    """Range breakout above 20h high with ATR expansion, in H4 uptrend."""
     close = primary_df["close"]
     open_ = primary_df["open"]
 
-    # 'Prior' rolling max — shift by 1 so we compare to the high before
-    # the current bar, not including it.
     prior_high = ind.rolling_max(primary_df["high"], BREAKOUT_LOOKBACK).shift(1)
     broke = close > prior_high
 
@@ -198,91 +158,152 @@ def filter_breakout_atr(primary_df: pd.DataFrame, h4_up_on_h1: pd.Series) -> pd.
 
 
 def filter_volume_absorption(primary_df: pd.DataFrame, h4_up_on_h1: pd.Series) -> pd.Series:
-    """Volume spike with close in upper third of range (bullish absorption),
-    gated by H4 uptrend.
-
-    Trigger when:
-      - H4 trend is up (gate) — volume spikes in downtrends are usually
-        capitulation, not absorption
-      - Volume > VOLUME_SPIKE_MULT × SMA(volume, VOLUME_MA_PERIOD)
-      - Close position in bar's range >= CLOSE_POS_MIN
-      - Bullish bar (close > open)
-    """
+    """Volume spike with close in upper third of bar, in H4 uptrend."""
     volume = primary_df["volume"]
     vol_baseline = ind.volume_ma(volume, VOLUME_MA_PERIOD)
     spike = volume > vol_baseline * VOLUME_SPIKE_MULT
 
     close_pos = ind.close_position_in_range(primary_df)
     in_upper_third = close_pos >= CLOSE_POS_MIN
-
     bullish = primary_df["close"] > primary_df["open"]
 
     cond = h4_up_on_h1 & spike & in_upper_third & bullish
     return cond.fillna(False).rename("volume_absorption")
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Public scan() — combine filters, apply transition + cooldown
-# ─────────────────────────────────────────────────────────────────────────────
+# ---------------------------------------------------------------------------
+# Short filters (mirror image of long)
+# ---------------------------------------------------------------------------
 
+def filter_ema_pullback_short(primary_df: pd.DataFrame, h4_down_on_h1: pd.Series) -> pd.Series:
+    """Bounce to EMA20 from below (short re-entry), in H4 downtrend."""
+    close = primary_df["close"]
+    high = primary_df["high"]
+    ema_fast = ind.ema(close, H1_EMA_FAST)
+    ema_slow = ind.ema(close, H1_EMA_SLOW)
+    atr14 = ind.atr(primary_df, ATR_PERIOD)
+
+    stretched_down = close < (ema_fast - PULLBACK_STRETCH_ATR * atr14)
+    was_stretched_recently = (
+        stretched_down.shift(1)
+        .rolling(window=PULLBACK_PRIOR_LOOKBACK, min_periods=1)
+        .max().fillna(0).astype(bool)
+    )
+    touched = high >= ema_fast * (1 - PULLBACK_TOUCH_TOL)
+    held = close < ema_fast
+    structure_ok = ema_fast < ema_slow
+
+    cond = h4_down_on_h1 & was_stretched_recently & touched & held & structure_ok
+    return cond.fillna(False).rename("ema_pullback_short")
+
+
+def filter_breakout_atr_short(primary_df: pd.DataFrame, h4_down_on_h1: pd.Series) -> pd.Series:
+    """Breakdown below 20h low with ATR expansion, in H4 downtrend."""
+    close = primary_df["close"]
+    open_ = primary_df["open"]
+
+    prior_low = ind.rolling_min(primary_df["low"], BREAKOUT_LOOKBACK).shift(1)
+    broke_down = close < prior_low
+
+    atr_now = ind.atr(primary_df, ATR_PERIOD)
+    atr_baseline = ind.sma(atr_now, ATR_MA_PERIOD)
+    vol_expansion = atr_now > atr_baseline * ATR_EXPANSION_MULT
+
+    body_ok = ind.body_pct(primary_df) >= BREAKOUT_BODY_MIN
+    bearish = close < open_
+
+    cond = h4_down_on_h1 & broke_down & vol_expansion & body_ok & bearish
+    return cond.fillna(False).rename("breakout_atr_short")
+
+
+def filter_volume_absorption_short(primary_df: pd.DataFrame, h4_down_on_h1: pd.Series) -> pd.Series:
+    """Volume spike with close in lower third of bar, in H4 downtrend."""
+    volume = primary_df["volume"]
+    vol_baseline = ind.volume_ma(volume, VOLUME_MA_PERIOD)
+    spike = volume > vol_baseline * VOLUME_SPIKE_MULT
+
+    close_pos = ind.close_position_in_range(primary_df)
+    in_lower_third = close_pos <= (1.0 - CLOSE_POS_MIN)
+    bearish = primary_df["close"] < primary_df["open"]
+
+    cond = h4_down_on_h1 & spike & in_lower_third & bearish
+    return cond.fillna(False).rename("volume_absorption_short")
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
 def _rising_edge(s: pd.Series) -> pd.Series:
-    """True where `s` transitions False→True from the previous bar."""
+    """True where s transitions False->True."""
     return s & ~s.shift(1, fill_value=False)
 
 
-def scan(primary_df: pd.DataFrame, context_df: pd.DataFrame) -> list[ScannerSignal]:
-    """Run all filters and return a chronological list of signals.
+# ---------------------------------------------------------------------------
+# Public scan()
+# ---------------------------------------------------------------------------
 
-    Combination rule: OR (any filter firing → signal), with transition-based
-    detection (rising edge per filter) and a global 4h cooldown between
-    consecutive signals.
+def scan(primary_df: pd.DataFrame, context_df: pd.DataFrame) -> list[ScannerSignal]:
+    """Run all filters (long + short) and return chronological signals.
+
+    Long gate:  H4 close > EMA200 -> only long filters fire
+    Short gate: H4 close < EMA200 -> only short filters fire
     """
     if primary_df.empty:
         return []
 
-    # ── H4 trend gate, aligned to H1 ──────────────────────────────────────
-    h4_flag = h4_uptrend_series(context_df)
-    h4_up_on_h1 = align_h4_to_h1(h4_flag, primary_df.index)
+    h4_up_flag   = h4_uptrend_series(context_df)
+    h4_down_flag = h4_downtrend_series(context_df)
+    h4_up_on_h1   = align_h4_to_h1(h4_up_flag,   primary_df.index)
+    h4_down_on_h1 = align_h4_to_h1(h4_down_flag, primary_df.index)
 
-    # ── Filters (all gated by H4 uptrend for long-only) ──────────────────
+    # Long filters
     cond_pullback = filter_ema_pullback(primary_df, h4_up_on_h1)
     cond_breakout = filter_breakout_atr(primary_df, h4_up_on_h1)
-    cond_volume = filter_volume_absorption(primary_df, h4_up_on_h1)
+    cond_volume   = filter_volume_absorption(primary_df, h4_up_on_h1)
 
-    # ── Rising edges ──────────────────────────────────────────────────────
-    edge_pullback = _rising_edge(cond_pullback)
-    edge_breakout = _rising_edge(cond_breakout)
-    edge_volume = _rising_edge(cond_volume)
+    # Short filters
+    cond_pullback_s = filter_ema_pullback_short(primary_df, h4_down_on_h1)
+    cond_breakout_s = filter_breakout_atr_short(primary_df, h4_down_on_h1)
+    cond_volume_s   = filter_volume_absorption_short(primary_df, h4_down_on_h1)
 
-    # ── Precompute context indicators for logging ─────────────────────────
-    ema20 = ind.ema(primary_df["close"], H1_EMA_FAST)
-    ema50 = ind.ema(primary_df["close"], H1_EMA_SLOW)
-    ema200 = ind.ema(primary_df["close"], 200)
-    atr14 = ind.atr(primary_df, ATR_PERIOD)
+    # Rising edges
+    edge_pullback   = _rising_edge(cond_pullback)
+    edge_breakout   = _rising_edge(cond_breakout)
+    edge_volume     = _rising_edge(cond_volume)
+    edge_pullback_s = _rising_edge(cond_pullback_s)
+    edge_breakout_s = _rising_edge(cond_breakout_s)
+    edge_volume_s   = _rising_edge(cond_volume_s)
+
+    # Precompute indicators
+    ema20    = ind.ema(primary_df["close"], H1_EMA_FAST)
+    ema50    = ind.ema(primary_df["close"], H1_EMA_SLOW)
+    ema200   = ind.ema(primary_df["close"], 200)
+    atr14    = ind.atr(primary_df, ATR_PERIOD)
     vol_ma20 = ind.volume_ma(primary_df["volume"], VOLUME_MA_PERIOD)
-    rsi14 = ind.rsi(primary_df["close"], 14)
-    macd_df = ind.macd(primary_df["close"])
-    bb_df = ind.bollinger_bands(primary_df["close"])
-    vwap_s = ind.vwap(primary_df)
+    rsi14    = ind.rsi(primary_df["close"], 14)
+    macd_df  = ind.macd(primary_df["close"])
+    bb_df    = ind.bollinger_bands(primary_df["close"])
+    vwap_s   = ind.vwap(primary_df)
     stoch_df = ind.stoch_rsi(primary_df["close"])
-    obv_s = ind.obv(primary_df)
-    rsi_div = ind.rsi_divergence(primary_df)
+    obv_s    = ind.obv(primary_df)
+    rsi_div  = ind.rsi_divergence(primary_df)
 
-    # ── Walk chronologically, apply cooldown ──────────────────────────────
     signals: list[ScannerSignal] = []
-    last_ts: pd.Timestamp | None = None
+    last_ts = None
 
-    # When multiple filters fire on the same bar, prefer the strongest
-    # signal type. Order encodes priority.
-    priority: list[tuple[FilterName, pd.Series]] = [
-        ("breakout_atr", edge_breakout),
-        ("ema_pullback", edge_pullback),
-        ("volume_absorption", edge_volume),
+    # Priority: breakout > pullback > volume (same for both directions)
+    priority = [
+        ("breakout_atr",            edge_breakout),
+        ("ema_pullback",            edge_pullback),
+        ("volume_absorption",       edge_volume),
+        ("breakout_atr_short",      edge_breakout_s),
+        ("ema_pullback_short",      edge_pullback_s),
+        ("volume_absorption_short", edge_volume_s),
     ]
 
     for ts in primary_df.index:
-        fired: FilterName | None = None
+        fired = None
         for name, edge in priority:
             if bool(edge.get(ts, False)):
                 fired = name
@@ -294,47 +315,38 @@ def scan(primary_df: pd.DataFrame, context_df: pd.DataFrame) -> list[ScannerSign
 
         bar = primary_df.loc[ts]
         ctx = {
-            # OHLCV
-            "close": float(bar["close"]),
-            "open": float(bar["open"]),
-            "high": float(bar["high"]),
-            "low": float(bar["low"]),
-            "volume": float(bar["volume"]),
-            # Moving averages
-            "ema20": float(ema20.get(ts, float("nan"))),
-            "ema50": float(ema50.get(ts, float("nan"))),
-            "ema200": float(ema200.get(ts, float("nan"))),
-            # Volatility
-            "atr14": float(atr14.get(ts, float("nan"))),
-            # Bollinger Bands
-            "bb_upper": float(bb_df["bb_upper"].get(ts, float("nan"))),
-            "bb_lower": float(bb_df["bb_lower"].get(ts, float("nan"))),
-            "bb_pct_b": float(bb_df["bb_pct_b"].get(ts, float("nan"))),
-            "bb_width": float(bb_df["bb_width"].get(ts, float("nan"))),
-            # VWAP
-            "vwap": float(vwap_s.get(ts, float("nan"))),
-            # Momentum
-            "rsi14": float(rsi14.get(ts, float("nan"))),
-            "stoch_k": float(stoch_df["stoch_k"].get(ts, float("nan"))),
-            "stoch_d": float(stoch_df["stoch_d"].get(ts, float("nan"))),
-            "macd": float(macd_df["macd"].get(ts, float("nan"))),
-            "macd_signal": float(macd_df["signal"].get(ts, float("nan"))),
-            "macd_hist": float(macd_df["histogram"].get(ts, float("nan"))),
-            # Volume
-            "vol_ma20": float(vol_ma20.get(ts, float("nan"))),
-            "obv": float(obv_s.get(ts, float("nan"))),
-            # Divergence & trend
+            "close":          float(bar["close"]),
+            "open":           float(bar["open"]),
+            "high":           float(bar["high"]),
+            "low":            float(bar["low"]),
+            "volume":         float(bar["volume"]),
+            "ema20":          float(ema20.get(ts, float("nan"))),
+            "ema50":          float(ema50.get(ts, float("nan"))),
+            "ema200":         float(ema200.get(ts, float("nan"))),
+            "atr14":          float(atr14.get(ts, float("nan"))),
+            "bb_upper":       float(bb_df["bb_upper"].get(ts, float("nan"))),
+            "bb_lower":       float(bb_df["bb_lower"].get(ts, float("nan"))),
+            "bb_pct_b":       float(bb_df["bb_pct_b"].get(ts, float("nan"))),
+            "bb_width":       float(bb_df["bb_width"].get(ts, float("nan"))),
+            "vwap":           float(vwap_s.get(ts, float("nan"))),
+            "rsi14":          float(rsi14.get(ts, float("nan"))),
+            "stoch_k":        float(stoch_df["stoch_k"].get(ts, float("nan"))),
+            "stoch_d":        float(stoch_df["stoch_d"].get(ts, float("nan"))),
+            "macd":           float(macd_df["macd"].get(ts, float("nan"))),
+            "macd_signal":    float(macd_df["signal"].get(ts, float("nan"))),
+            "macd_hist":      float(macd_df["histogram"].get(ts, float("nan"))),
+            "vol_ma20":       float(vol_ma20.get(ts, float("nan"))),
+            "obv":            float(obv_s.get(ts, float("nan"))),
             "rsi_divergence": int(rsi_div.get(ts, 0)),
-            "h4_uptrend": float(bool(h4_up_on_h1.get(ts, False))),
+            "h4_uptrend":     float(bool(h4_up_on_h1.get(ts, False))),
+            "h4_downtrend":   float(bool(h4_down_on_h1.get(ts, False))),
         }
-        signals.append(
-            ScannerSignal(
-                timestamp=ts,
-                filter=fired,
-                price=float(bar["close"]),
-                context=ctx,
-            )
-        )
+        signals.append(ScannerSignal(
+            timestamp=ts,
+            filter=fired,
+            price=float(bar["close"]),
+            context=ctx,
+        ))
         last_ts = ts
 
     return signals
