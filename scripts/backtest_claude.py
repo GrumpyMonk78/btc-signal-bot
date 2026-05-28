@@ -40,7 +40,7 @@ from bot.config import settings, get_enabled_instruments, get_instrument
 from bot.data.market import provider_for, BarRequest
 from bot.strategy.scanner import scan as run_scanner, ScannerSignal
 from bot.llm.context import assemble_context
-from bot.llm.decider import decide as claude_decide, DeciderError
+from bot.llm.decider import decide as claude_decide, DeciderError, TokenBudget
 from bot.storage.models import PortfolioState, Decision
 
 
@@ -105,6 +105,7 @@ def simulate_trade_outcome(
     tp: float,
     direction: str = "long",
     max_bars: int = 48,
+    time_exit_bars: int = 12,
 ) -> TradeOutcome:
     """Simuluje výsledek tradu bar-by-bar po triggeru.
 
@@ -113,21 +114,28 @@ def simulate_trade_outcome(
       - short: low <= TP → win, high >= SL → loss
     První zasažení ukončí trade. Po max_bars barech → timeout (exit na close).
 
+    Time exit (time_exit_bars): po time_exit_bars barech zkontroluje jestli
+    se cena pohnula alespoň 30% vzdálenosti k TP. Pokud ne → timeout exit
+    (momentum vyprchalo).
+
     Parameters
     ----------
-    primary_df  : kompletní H1 data (včetně budoucnosti)
-    trigger_ts  : čas triggeru
-    entry       : vstupní cena
-    sl          : stop-loss cena
-    tp          : take-profit cena
-    direction   : "long" nebo "short"
-    max_bars    : maximální počet barů čekání (default 48 = 2 dny)
+    primary_df      : kompletní H1 data (včetně budoucnosti)
+    trigger_ts      : čas triggeru
+    entry           : vstupní cena
+    sl              : stop-loss cena
+    tp              : take-profit cena
+    direction       : "long" nebo "short"
+    max_bars        : maximální počet barů čekání (default 48 = 2 dny)
+    time_exit_bars  : po kolika barech zkontrolovat time exit (default 12 = 12h)
     """
     future = primary_df[primary_df.index > trigger_ts].head(max_bars)
+    tp_distance = abs(tp - entry)
 
-    for bar_ts, bar in future.iterrows():
+    for bar_idx, (bar_ts, bar) in enumerate(future.iterrows(), start=1):
         high = float(bar["high"])
         low  = float(bar["low"])
+        close = float(bar["close"])
         hours_elapsed = (bar_ts - trigger_ts).total_seconds() / 3600
 
         if direction == "long":
@@ -164,6 +172,22 @@ def simulate_trade_outcome(
                     exit_bar=bar_ts,
                     exit_hours=hours_elapsed,
                     pnl_pct=(entry - tp) / entry * 100,
+                )
+
+        # Time exit: po time_exit_bars barech zkontroluj progress k TP
+        if bar_idx == time_exit_bars and tp_distance > 0:
+            if direction == "long":
+                progress = close - entry
+            else:
+                progress = entry - close
+            if progress < 0.30 * tp_distance:
+                pnl = (close - entry) / entry * 100 if direction == "long" else (entry - close) / entry * 100
+                return TradeOutcome(
+                    result="timeout",
+                    exit_price=close,
+                    exit_bar=bar_ts,
+                    exit_hours=hours_elapsed,
+                    pnl_pct=pnl,
                 )
 
     # Timeout — exit na close posledního dostupného baru
@@ -455,6 +479,9 @@ def parse_args() -> argparse.Namespace:
                    help="Bez Claude API — jen zobraz triggery a outcome")
     p.add_argument("--max-bars", type=int, default=48,
                    help="Max H1 barů pro SL/TP simulaci (default 48 = 2 dny)")
+    p.add_argument("--budget", type=int, default=500_000,
+                   help="Denní token budget pro Claude API (default 500000). "
+                        "Použij 2000000 pro dlouhý backtest.")
     return p.parse_args()
 
 
@@ -463,8 +490,13 @@ def main() -> int:
 
     print("=" * 72)
     print("  AI Signal Bot — Claude Backtest")
-    print(f"  H1 barů: {args.bars}  |  dry-run: {args.dry_run}")
+    print(f"  H1 barů: {args.bars}  |  dry-run: {args.dry_run}  |  budget: {args.budget:,} tokenů")
     print("=" * 72)
+
+    # Override token budget (pro delší backtesty nestačí default 500k)
+    if not args.dry_run:
+        import bot.llm.decider as _decider_mod
+        _decider_mod._default_budget = TokenBudget(daily_limit=args.budget)
 
     # Ověř credentials
     missing = settings.required_for_data()

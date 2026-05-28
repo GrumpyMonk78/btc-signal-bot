@@ -5,6 +5,22 @@
 
 ---
 
+## 2026-05-28 — Time-based exit + budget arg pro backtest
+
+**Soubory:**
+- `bot/llm/prompts.py` — SYSTEM_DECIDER_V3.1: přidáno pravidlo dynamického časového exitu (12h)
+- `scripts/backtest_claude.py` — `--budget` CLI argument; `simulate_trade_outcome()` max 12h timeout
+
+**Co se změnilo:**
+1. Prompt V3.1: přidáno pravidlo "pokud se cena do 12 barů nepohne k TP alespoň o 30% vzdálenosti, pozice ztrácí sílu — doporučuj exit na tržní ceně". Claude to zahrne do `invalidation` pole v JSON.
+2. Simulace: `simulate_trade_outcome()` má nový parametr `time_exit_bars=12` — pokud po 12 barech cena nepokročila k TP, simulace vrátí `timeout` s cenou close posledního baru.
+3. `--budget` argument: backtest může přepsat výchozí 500k token budget pro delší běhy.
+
+**Proč:**
+Backtest V5 ukázal TSLA pozici která visela 71h než zasáhla SL. Time exit by ji uzavřel na break-even nebo malé ztrátě po 12h. Zároveň budget 500k nestačil pro 168 triggerů — TSLA a IONQ se nedostaly na řadu.
+
+---
+
 ## 2026-05-28 — Anthropic prompt caching v decider.py
 
 **Soubory:**

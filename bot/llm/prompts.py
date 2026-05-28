@@ -614,16 +614,13 @@ context that a deterministic scanner cannot see.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Versioning helpers
+# V3.1 — Time-based exit rule
 # ─────────────────────────────────────────────────────────────────────────────
 
+SYSTEM_DECIDER_V3_1 = SYSTEM_DECIDER_V3.replace(
+    "11. **Always fill invalidation** with a specific price level or condition.\n    Never return null.",
+    """11. **Always fill invalidation** with a specific price level or condition.
+    Never return null.
 
-def prompt_hash(text: str) -> str:
-    """Short stable hash for DB indexing. First 12 hex chars of SHA-256."""
-    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
-
-
-def active_prompt() -> tuple[str, str, str]:
-    """Return (version, text, hash) of the currently active system prompt."""
-    text = SYSTEM_DECIDER_V3
-    return ("v3.0.0", text, prompt_hash(text))
+12. **Time-based exit (dynamic).** When recommending an entry, always include
+    in `invalidation` a time
