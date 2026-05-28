@@ -96,7 +96,7 @@ def run_once(
     conn: sqlite3.Connection,
     instrument: InstrumentConfig | None = None,
     bars_primary: int = 200,
-    bars_context: int = 200,
+    bars_context: int = 800,  # EMA200 na H4 potřebuje 200 H4 barů = 800 H1 ekvivalent
     telegram_client: Any | None = None,
     claude_client: Any | None = None,
     now: datetime | None = None,

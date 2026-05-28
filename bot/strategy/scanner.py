@@ -6,7 +6,7 @@ The scanner is a *trigger*, not a decision-maker. Its job is to answer:
 precision is the desired profile. Claude + the risk manager make the
 actual go/no-go call downstream.
 
-Three filters, combined with OR, ALL gated by H4 uptrend (long-only):
+Three filters, combined with OR, ALL gated by H4 long-term uptrend (close > EMA200):
   1. EMA pullback from a stretched position
   2. Range breakout with ATR expansion
   3. Volume spike with bullish absorption
@@ -42,6 +42,7 @@ from bot.strategy import indicators as ind
 # Trend definition (H4)
 H4_EMA_FAST = 20
 H4_EMA_SLOW = 50
+H4_EMA_LONG = 200  # Trend gate: close > EMA200 (dlouhodobý uptrend)
 
 # H1 pullback parameters
 H1_EMA_FAST = 20
@@ -97,17 +98,18 @@ class ScannerSignal:
 
 
 def h4_uptrend_series(context_df: pd.DataFrame) -> pd.Series:
-    """Per-H4-bar boolean: 'we are in an H4 uptrend'.
+    """Per-H4-bar boolean: 'we are in a long-term uptrend'.
 
-    Definition: close > EMA50 AND EMA20 > EMA50.
+    Definition: close > EMA200 (dlouhodobý uptrend).
+    Původní podmínka (close > EMA50 AND EMA20 > EMA50) byla příliš přísná
+    a blokovala příliš mnoho setupů v sideways/konsolidaci.
     Returns a Series indexed by H4 timestamps.
     """
     if context_df.empty:
         return pd.Series(dtype=bool, name="h4_uptrend")
 
-    ema_fast = ind.ema(context_df["close"], H4_EMA_FAST)
-    ema_slow = ind.ema(context_df["close"], H4_EMA_SLOW)
-    cond = (context_df["close"] > ema_slow) & (ema_fast > ema_slow)
+    ema_long = ind.ema(context_df["close"], H4_EMA_LONG)
+    cond = context_df["close"] > ema_long
     return cond.fillna(False).rename("h4_uptrend")
 
 
@@ -256,10 +258,16 @@ def scan(primary_df: pd.DataFrame, context_df: pd.DataFrame) -> list[ScannerSign
     # ── Precompute context indicators for logging ─────────────────────────
     ema20 = ind.ema(primary_df["close"], H1_EMA_FAST)
     ema50 = ind.ema(primary_df["close"], H1_EMA_SLOW)
+    ema200 = ind.ema(primary_df["close"], 200)
     atr14 = ind.atr(primary_df, ATR_PERIOD)
     vol_ma20 = ind.volume_ma(primary_df["volume"], VOLUME_MA_PERIOD)
     rsi14 = ind.rsi(primary_df["close"], 14)
     macd_df = ind.macd(primary_df["close"])
+    bb_df = ind.bollinger_bands(primary_df["close"])
+    vwap_s = ind.vwap(primary_df)
+    stoch_df = ind.stoch_rsi(primary_df["close"])
+    obv_s = ind.obv(primary_df)
+    rsi_div = ind.rsi_divergence(primary_df)
 
     # ── Walk chronologically, apply cooldown ──────────────────────────────
     signals: list[ScannerSignal] = []
@@ -286,19 +294,37 @@ def scan(primary_df: pd.DataFrame, context_df: pd.DataFrame) -> list[ScannerSign
 
         bar = primary_df.loc[ts]
         ctx = {
+            # OHLCV
             "close": float(bar["close"]),
             "open": float(bar["open"]),
             "high": float(bar["high"]),
             "low": float(bar["low"]),
             "volume": float(bar["volume"]),
+            # Moving averages
             "ema20": float(ema20.get(ts, float("nan"))),
             "ema50": float(ema50.get(ts, float("nan"))),
+            "ema200": float(ema200.get(ts, float("nan"))),
+            # Volatility
             "atr14": float(atr14.get(ts, float("nan"))),
+            # Bollinger Bands
+            "bb_upper": float(bb_df["bb_upper"].get(ts, float("nan"))),
+            "bb_lower": float(bb_df["bb_lower"].get(ts, float("nan"))),
+            "bb_pct_b": float(bb_df["bb_pct_b"].get(ts, float("nan"))),
+            "bb_width": float(bb_df["bb_width"].get(ts, float("nan"))),
+            # VWAP
+            "vwap": float(vwap_s.get(ts, float("nan"))),
+            # Momentum
             "rsi14": float(rsi14.get(ts, float("nan"))),
+            "stoch_k": float(stoch_df["stoch_k"].get(ts, float("nan"))),
+            "stoch_d": float(stoch_df["stoch_d"].get(ts, float("nan"))),
             "macd": float(macd_df["macd"].get(ts, float("nan"))),
             "macd_signal": float(macd_df["signal"].get(ts, float("nan"))),
             "macd_hist": float(macd_df["histogram"].get(ts, float("nan"))),
+            # Volume
             "vol_ma20": float(vol_ma20.get(ts, float("nan"))),
+            "obv": float(obv_s.get(ts, float("nan"))),
+            # Divergence & trend
+            "rsi_divergence": int(rsi_div.get(ts, 0)),
             "h4_uptrend": float(bool(h4_up_on_h1.get(ts, False))),
         }
         signals.append(

@@ -23,7 +23,7 @@ from pydantic import ValidationError
 
 from bot.config import settings
 from bot.llm.context import render_context_for_prompt
-from bot.llm.prompts import active_prompt
+from bot.llm.prompts import active_prompt, EXAMPLES_DECISION_V2
 from bot.storage.models import DeciderContext, Decision
 
 logger = logging.getLogger(__name__)
@@ -147,6 +147,36 @@ def decide(
     prompt_version, system_text, prompt_h = active_prompt()
     user_text = render_context_for_prompt(ctx)
 
+    # ── Prompt caching ────────────────────────────────────────────────────
+    # System prompt je označen jako cacheable — Anthropic ho zapamatuje na
+    # ~1h a účtuje jen cache_read (90% sleva oproti plné ceně input tokenů).
+    # Podmínka: min. 1024 tokenů v cacheable bloku (system prompt splňuje).
+    system_with_cache: list[dict] = [
+        {
+            "type": "text",
+            "text": system_text,
+            "cache_control": {"type": "ephemeral"},
+        }
+    ]
+
+    # Few-shot příklady — také cacheable (mění se jen s verzí promptu)
+    few_shot_messages: list[dict] = []
+    for i, ex in enumerate(EXAMPLES_DECISION_V2):
+        few_shot_messages.append({"role": "user", "content": ex["user"]})
+        # Poslední few-shot assistant blok označíme jako cacheable — tím
+        # cachujeme celý prefix (system + few-shot) najednou.
+        is_last = (i == len(EXAMPLES_DECISION_V2) - 1)
+        assistant_content: Any = (
+            [{"type": "text", "text": json.dumps(ex["assistant"]),
+              "cache_control": {"type": "ephemeral"}}]
+            if is_last
+            else json.dumps(ex["assistant"])
+        )
+        few_shot_messages.append({"role": "assistant", "content": assistant_content})
+
+    # Aktuální trigger — nekachujeme (pokaždé jiný kontext)
+    few_shot_messages.append({"role": "user", "content": user_text})
+
     est_in = _estimate_input_tokens(system_text, user_text)
     if not budget.can_afford(est_in, max_output_tokens):
         raise BudgetExceededError(
@@ -161,8 +191,9 @@ def decide(
             response = client.messages.create(
                 model=settings.anthropic_model,
                 max_tokens=max_output_tokens,
-                system=system_text,
-                messages=[{"role": "user", "content": user_text}],
+                system=system_with_cache,
+                messages=few_shot_messages,
+                extra_headers={"anthropic-beta": "prompt-caching-2024-07-31"},
             )
             latency_ms = int((time.monotonic() - start) * 1000)
 
@@ -174,7 +205,14 @@ def decide(
             usage = getattr(response, "usage", None)
             input_tokens = getattr(usage, "input_tokens", 0) if usage else 0
             output_tokens = getattr(usage, "output_tokens", 0) if usage else 0
+            cache_create = getattr(usage, "cache_creation_input_tokens", 0) if usage else 0
+            cache_read = getattr(usage, "cache_read_input_tokens", 0) if usage else 0
             budget.record(input_tokens, output_tokens)
+
+            if cache_create:
+                logger.debug("cache: WRITE %d tokens (prvni volani / novy prompt)", cache_create)
+            if cache_read:
+                logger.debug("cache: HIT %d tokens (~90%% sleva)", cache_read)
 
             decision = parse_decision(raw_text)
 

@@ -39,13 +39,13 @@ def _flat_bars(n: int, price: float = 100.0, freq: str = "1h") -> pd.DataFrame:
     )
 
 
-def _uptrending_context(n: int = 100, start: float = 90.0, end: float = 130.0,
+def _uptrending_context(n: int = 250, start: float = 90.0, end: float = 130.0,
                         start_offset_hours: int = 240) -> pd.DataFrame:
-    """H4 context that produces a clean uptrend gate (close > EMA50 and EMA20 > EMA50).
+    """H4 context that produces a clean uptrend gate (close > EMA200).
 
-    Starts ``start_offset_hours`` before ``2026-01-01`` so that the H4 EMA50
-    (which needs ~50 bars to seed) is already valid by the time the H1
-    primary series begins."""
+    Needs at least 200 bars for EMA200 to seed properly. By default n=250.
+    Starts ``start_offset_hours`` before ``2026-01-01`` so that the H4 EMA200
+    is already valid by the time the H1 primary series begins."""
     start_ts = pd.Timestamp("2026-01-01", tz="UTC") - pd.Timedelta(hours=start_offset_hours)
     idx = pd.date_range(start_ts, periods=n, freq="4h", tz="UTC")
     closes = np.linspace(start, end, n)
@@ -97,8 +97,9 @@ def test_flat_market_fires_nothing():
 
 
 def test_h4_uptrend_detected_on_rising_series():
-    # Slowly rising H4 series — eventually close > EMA50 and EMA20 > EMA50.
-    n = 120
+    # Slowly rising H4 series — eventually close > EMA200.
+    # Need at least 200 bars for EMA200 to seed properly.
+    n = 300
     idx = _h4_index(n)
     closes = np.linspace(100, 200, n)
     df = pd.DataFrame(
@@ -116,7 +117,7 @@ def test_h4_uptrend_detected_on_rising_series():
     flag = sc.h4_uptrend_series(df)
     # The last bar in a steady uptrend must be flagged as uptrend.
     assert bool(flag.iloc[-1]) is True
-    # Early bars (before EMA50 is even seeded) must not be flagged.
+    # Early bars (before EMA200 is even seeded) must not be flagged.
     assert bool(flag.iloc[10]) is False
 
 
@@ -244,9 +245,10 @@ def test_rising_edge_helper():
 
 
 def test_cooldown_suppresses_followups_within_4h():
-    # Build a primary series of 100 quiet bars and 3 engineered breakouts
+    # Build a primary series of 80 quiet bars and 3 engineered breakouts
     # spaced 2h apart. Only the first should produce a signal (cooldown=4h).
     # Use an H4 uptrend context so the gate lets the breakouts through.
+    # EMA200 needs 200 H4 bars — context starts well before primary.
     n_quiet = 80
     base = _flat_bars(n_quiet, price=100.0)
 
@@ -269,7 +271,24 @@ def test_cooldown_suppresses_followups_within_4h():
             )
         )
     primary = pd.concat([base, *rows])
-    context = _uptrending_context(100, start=90.0, end=110.0)
+
+    # Context: 250 H4 bars ending well after primary ends so ffill covers all H1 timestamps.
+    # Price stays above EMA200 (starts at 90, ends at 130 — all above EMA200 after warmup).
+    context_end = primary.index[-1] + pd.Timedelta(hours=4)
+    context_idx = pd.date_range(end=context_end, periods=250, freq="4h", tz="UTC")
+    ctx_closes = np.linspace(90.0, 130.0, 250)
+    context = pd.DataFrame(
+        {
+            "open": ctx_closes,
+            "high": ctx_closes + 1.0,
+            "low": ctx_closes - 1.0,
+            "close": ctx_closes,
+            "volume": [1.0] * 250,
+            "vwap": ctx_closes,
+            "trade_count": [10] * 250,
+        },
+        index=context_idx,
+    )
 
     signals = sc.scan(primary, context)
     # Cooldown enforced: at most one signal in the 4h window we engineered.

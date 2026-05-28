@@ -1,0 +1,49 @@
+symbol,trigger_ts,filter_name,trigger_price,decision,confidence,entry_price,stop_loss,take_profit,outcome,exit_price,exit_hours,pnl_pct,tokens_in,tokens_out,reasoning_short
+BTC/USD,2026-05-09T15:00:00+00:00,ema_pullback,80538.46,skip,4,,,,,,,,7906,514,"ema_pullback trigger fires at 80538 but several factors weaken the setup. First,"
+BTC/USD,2026-05-09T22:00:00+00:00,ema_pullback,80751.8795,enter,6,80751.88,80492.0,81272.0,hit_tp,81272.0,17.0,0.6440964594260782,7906,460,EMA pullback trigger fires at 80751.88 with price above EMA20 (80548.21) and VWA
+BTC/USD,2026-05-10T17:00:00+00:00,volume_absorption,81479.18,skip,4,,,,,,,,7911,507,Volume absorption trigger fires at 81479 with 3.7x average volume and price abov
+BTC/USD,2026-05-10T22:00:00+00:00,breakout_atr,82021.959,skip,4,,,,,,,,7920,508,"Breakout_atr trigger at 82021.96 fires on a large H1 candle (80656 to 82142, clo"
+BTC/USD,2026-05-11T11:00:00+00:00,volume_absorption,81171.394,skip,4,,,,,,,,7904,543,Volume absorption trigger fires with 3.7x average volume and price above VWAP (+
+BTC/USD,2026-05-11T17:00:00+00:00,ema_pullback,81936.43,skip,4,,,,,,,,7912,478,EMA pullback trigger fires at 81936 with price above EMA20 (81178) and VWAP (811
+BTC/USD,2026-05-11T23:00:00+00:00,ema_pullback,81738.608,skip,4,,,,,,,,7905,507,EMA pullback trigger fires at 81738.61 with price above EMA20 (81467) and VWAP (
+BTC/USD,2026-05-12T17:00:00+00:00,volume_absorption,80499.1535,skip,4,,,,,,,,7904,475,The volume_absorption trigger fires at 80499 but key conditions contradict the s
+BTC/USD,2026-05-13T09:00:00+00:00,ema_pullback,81277.873,skip,4,,,,,,,,7912,465,EMA pullback trigger fires at 81277.87 with price above EMA20 (80946) and VWAP (
+BTC/USD,2026-05-13T14:00:00+00:00,volume_absorption,79730.715,skip,4,,,,,,,,7926,456,Volume absorption trigger fires at 79730 with 3.9x volume and bullish RSI diverg
+BTC/USD,2026-05-14T14:00:00+00:00,breakout_atr,80953.597456895,enter,6,80953.6,80468.17,81924.46,hit_tp,81924.46,3.0,1.1992795873191564,7913,561,"Breakout_atr fires with a strong H1 bar (O=79670, H=80998, C=80953, range ~1328)"
+BTC/USD,2026-05-15T02:00:00+00:00,ema_pullback,81283.261,skip,4,,,,,,,,7904,438,"EMA pullback trigger fires at 81283 near EMA20 (80899), H4 uptrend confirmed. Ho"
+BTC/USD,2026-05-15T06:00:00+00:00,volume_absorption,80566.0675,skip,3,,,,,,,,7908,431,"Volume absorption trigger fires on a 3.2x volume bar closing at 80566, but the s"
+BTC/USD,2026-05-15T14:00:00+00:00,volume_absorption,79093.945,skip,4,,,,,,,,7927,562,Volume absorption trigger fires at 79093.95 with 2.6x average volume and bullish
+BTC/USD,2026-05-17T10:00:00+00:00,volume_absorption,78443.03,skip,4,,,,,,,,7914,524,Volume absorption trigger fires at 78443 with 3.0x volume and price above VWAP (
+BTC/USD,2026-05-21T00:00:00+00:00,ema_pullback,77882.99,skip,4,,,,,,,,7908,467,The ema_pullback trigger fires at 77882.99 but several indicators undermine the 
+BTC/USD,2026-05-21T05:00:00+00:00,ema_pullback,77753.8045,skip,4,,,,,,,,7908,454,EMA pullback setup has several contradictory signals that undermine the entry. F
+BTC/USD,2026-05-25T12:00:00+00:00,ema_pullback,77279.82,skip,4,,,,,,,,7908,469,EMA pullback setup has several conflicting signals that reduce conviction below 
+NVDA,2026-04-24T14:00:00+00:00,volume_absorption,208.7,enter,6,208.7,206.64,212.76,hit_tp,212.76,74.0,1.9453761379971262,7733,487,Volume absorption trigger fires with very strong confirmation: 14:00Z H1 bar pri
+NVDA,2026-04-27T16:00:00+00:00,breakout_atr,212.75,enter,6,212.75,210.56,217.13,hit_tp,217.13,4.0,2.0587544065804915,7745,472,Breakout_atr trigger at 212.75 with H4 uptrend confirmed (close > H4 EMA200). Th
+NVDA,2026-04-28T12:00:00+00:00,ema_pullback,210.14,skip,4,,,,,,,,7739,565,"EMA pullback trigger fires at 210.14 (EMA20=210.13), which is technically valid,"
+NVDA,2026-04-28T16:00:00+00:00,ema_pullback,210.7,enter,6,210.7,208.05,216.0,hit_sl,208.05,26.0,-1.257712387280483,7746,562,"EMA pullback setup: price at 210.70 has touched EMA20=210.27 and bounced, while "
+NVDA,2026-05-06T19:00:00+00:00,volume_absorption,207.67,enter,6,207.67,205.52,211.97,hit_tp,211.97,19.0,2.070592767371316,7740,485,Volume absorption trigger at 207.67 with 2.3x average volume on the 19:00Z H1 ba
+NVDA,2026-05-11T14:00:00+00:00,breakout_atr,221.59,enter,6,221.59,218.97,226.83,hit_sl,218.97,5.0,-1.1823638250823614,7734,525,Breakout_atr trigger fires at 221.59 with price above the 20-bar high and ATR ex
+NVDA,2026-05-12T13:00:00+00:00,ema_pullback,220.33,skip,4,,,,,,,,7749,496,"The ema_pullback trigger fires at 220.33 near EMA20=217.05 in an H4 uptrend, but"
+NVDA,2026-05-12T17:00:00+00:00,ema_pullback,218.69,enter,6,218.69,216.02,223.95,hit_tp,223.95,19.0,2.4052311491151817,7741,455,EMA pullback trigger in a confirmed H4 uptrend (close > H4 EMA200). Price at 218
+NVDA,2026-05-14T14:00:00+00:00,volume_absorption,234.57,enter,6,234.57,231.67,240.37,hit_sl,231.67,22.0,-1.2363047277998065,7738,430,Volume absorption trigger fires with 2.1x average volume on a bullish H1 bar clo
+NVDA,2026-05-18T12:00:00+00:00,ema_pullback,230.06,skip,4,,,,,,,,7737,465,"Trigger fires ema_pullback at 230.06 touching EMA20=228.46, but several concerns"
+NVDA,2026-05-20T16:00:00+00:00,ema_pullback,224.59,skip,4,,,,,,,,7744,553,EMA pullback trigger fires at 224.59 with price near EMA20=223.43 and H4 uptrend
+TSLA,2026-05-07T13:00:00+00:00,volume_absorption,413.485,enter,6,413.49,409.0,422.5,hit_sl,409.0,1.0,-1.0858787395100267,7713,516,"Volume absorption trigger fires on 2.6x average volume (211,458) with a strong H"
+TSLA,2026-05-08T13:00:00+00:00,breakout_atr,428.025,enter,6,428.02,422.26,439.54,hit_sl,422.26,72.0,-1.345731507873462,7709,619,"Breakout_atr trigger at 428.02 with a strong H1 candle: O=415.83, H=428.39, C=42"
+TSLA,2026-05-11T13:00:00+00:00,ema_pullback,421.66,skip,4,,,,,,,,7709,528,"The ema_pullback trigger fires at 421.66 vs EMA20=418.06, but several indicators"
+TSLA,2026-05-13T13:00:00+00:00,ema_pullback,433.77,skip,4,,,,,,,,7708,453,"ema_pullback trigger fires at 433.77 with EMA20=431.02 and H4 uptrend confirmed,"
+TSLA,2026-05-14T14:00:00+00:00,ema_pullback,444.38,enter,6,444.38,438.61,455.92,hit_sl,438.61,22.0,-1.2984382735496605,7707,478,EMA pullback trigger at 444.38 with price sitting just above EMA20 (440.56) in a
+TSLA,2026-05-14T18:00:00+00:00,ema_pullback,444.89,skip,4,,,,,,,,7708,442,"EMA pullback trigger fires at 444.89 near EMA20=442.64, but several factors weak"
+TSLA,2026-05-22T14:00:00+00:00,volume_absorption,430.44,enter,6,430.44,425.44,440.44,hit_sl,425.44,5.0,-1.16160208159093,7708,440,Volume absorption trigger fires: current bar (05-22T14) closed at 430.44 with vo
+IONQ,2026-04-29T19:00:00+00:00,volume_absorption,42.1,skip,4,,,,,,,,7715,507,"Volume absorption fires at 42.10 with 2.3x volume and price above VWAP (41.36), "
+IONQ,2026-05-04T19:00:00+00:00,ema_pullback,45.78,skip,4,,,,,,,,7720,409,"EMA pullback trigger fires at 45.78 near EMA20 (45.60), with StochRSI K=4.7 deep"
+IONQ,2026-05-05T14:00:00+00:00,ema_pullback,45.89,enter,6,45.89,44.79,48.09,hit_tp,48.09,4.0,4.794072782741344,7720,485,EMA pullback setup: price at 45.89 has pulled back to EMA20 (45.57) after runnin
+IONQ,2026-05-06T14:00:00+00:00,volume_absorption,50.29,enter,6,50.29,49.08,52.71,hit_tp,52.71,3.0,4.812089878703523,7721,499,Volume absorption trigger fires with 2.0x average volume on a bullish bar closin
+IONQ,2026-05-07T13:00:00+00:00,ema_pullback,50.865,skip,4,,,,,,,,7716,526,The ema_pullback trigger fires at 50.87 vs EMA20=49.30 — price is still above EM
+IONQ,2026-05-11T13:00:00+00:00,ema_pullback,53.48,skip,3,,,,,,,,7718,869,Scanner misclassified this as ema_pullback but price (53.48) is 4.96 points abov
+IONQ,2026-05-12T17:00:00+00:00,ema_pullback,53.64,skip,4,,,,,,,,7724,800,EMA20 pullback trigger fires at 53.64 but multiple indicators contradict a clean
+IONQ,2026-05-13T14:00:00+00:00,ema_pullback,54.73,enter,6,54.73,52.76,58.67,hit_sl,52.76,47.0,-3.5994883975881584,7716,473,EMA pullback trigger is clean: price at 54.73 has pulled back toward EMA20=53.84
+IONQ,2026-05-14T13:00:00+00:00,ema_pullback,54.36,skip,4,,,,,,,,7717,967,"EMA pullback trigger is technically valid (price 54.36 at EMA20 54.33, RSI 52.3,"
+IONQ,2026-05-21T13:00:00+00:00,volume_absorption,58.52,skip,4,,,,,,,,7724,968,Volume absorption trigger fires with 3.6x volume and price above VWAP (58.52 vs 
+IONQ,2026-05-22T13:00:00+00:00,volume_absorption,63.165,enter,7,63.16,61.15,67.18,hit_sl,61.15,96.0,-3.182393920202657,7716,462,"Volume absorption trigger fires on a powerful H1 bar (O=58.42, H=63.50, C=63.16,"
+IONQ,2026-05-27T12:00:00+00:00,ema_pullback,61.76,skip,4,,,,,,,,7720,901,While the ema_pullback setup has positive attributes — StochRSI deeply oversold 

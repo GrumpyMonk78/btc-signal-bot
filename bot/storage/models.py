@@ -176,8 +176,14 @@ class Decision(BaseModel):
     size_hint: Literal["normal", "reduced", "skip"] = "normal"
     reasoning: str = Field(min_length=1, max_length=2000)
     key_risks: list[str] = Field(default_factory=list, max_length=10)
-    invalidation: str = Field(default="", max_length=512,
-                              description="What price action would invalidate this thesis")
+    invalidation: Optional[str] = Field(default="", max_length=512,
+                                       description="What price action would invalidate this thesis")
+
+    @field_validator("invalidation", mode="before")
+    @classmethod
+    def _coerce_invalidation_none(cls, v: object) -> str:
+        """Claude sometimes returns null for invalidation — coerce to empty string."""
+        return v if v is not None else ""
 
     @model_validator(mode="after")
     def _validate_consistency(self) -> "Decision":

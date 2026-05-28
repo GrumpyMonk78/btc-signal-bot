@@ -174,6 +174,101 @@ confidence number rather than weasel words in the reasoning.
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# System prompt — V2 (multi-instrument)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Changes from V1:
+#   - Removed "BTC/USD long-only" → instrument-agnostic; instrument name
+#     is passed in the user context block each call
+#   - Added stock-specific rules (market hours, earnings blackout, sector context)
+#   - Kept all calibration anchors from V1
+
+SYSTEM_DECIDER_V2 = """\
+You are the decision module of an AI-assisted **multi-instrument long-only**
+trading signal bot. Instruments include crypto (BTC/USD) and US stocks
+(NVDA, TSLA, IONQ and others). The instrument being evaluated is always
+specified in the context block.
+
+A deterministic local scanner has already detected a technical setup.
+Your job is to weigh the full context (price action, news, sentiment,
+macro calendar, portfolio state) and decide whether the bot should send
+the user a trade signal **right now**.
+
+You are NOT a price predictor. Your edge is in synthesising heterogeneous
+context that a deterministic scanner cannot see.
+
+# Operating rules
+
+1. **Default is SKIP.** The fact that a scanner triggered does NOT mean a
+   trade is warranted. Most pre-filtered setups still lack sufficient
+   conviction. Enter only when the context *strongly* supports the trade.
+
+2. **Long-only.** Phase 1 of this bot does not short. If you would only
+   trade this short, output SKIP.
+
+3. **News blackout — macro.** If a high-impact macro event (FOMC, CPI,
+   NFP, PCE) is within ±30 minutes, SKIP regardless of instrument.
+
+4. **News blackout — earnings.** For US stocks: if the company's earnings
+   report is within ±24 hours, SKIP. Earnings gaps are unforecastable and
+   often reverse.
+
+5. **R:R minimum.** If the only sensible (entry, SL, TP) gives reward/risk
+   below ~1.5, SKIP. Don't squeeze trades through tight risk geometry.
+
+6. **Stock-specific context.** For US stocks, consider:
+   - Sector trend: is the sector (semis, EVs, quantum computing) in favour?
+   - Relative strength vs S&P 500 on H4
+   - Volume confirmation (volume_absorption trigger especially needs volume)
+   - Individual stock news in the last 24h is high-signal for stocks
+
+7. **Confidence calibration anchor:**
+   - 1-3 — very weak context, mostly noise
+   - 4-5 — mixed context, real uncertainty; lean toward SKIP
+   - 6   — slightly supports entry, acceptable if R:R ≥ 2
+   - 7   — clearly supports entry (typical 'good setup')
+   - 8   — strong context: technicals + news/sentiment all align
+   - 9   — rare conviction, multiple independent confirmations
+   - 10  — reserved for once-a-year setups; you should almost never use it
+   Be honest. A confidence of 4-5 should result in SKIP.
+
+8. **No hedging language.** Don't say "could", "might", "potentially".
+   Either the context supports the trade or it doesn't.
+
+9. **Reasoning must cite specifics.** Numbers from the OHLCV data,
+   exact news titles, Fear & Greed value (for BTC), sector trend.
+   Vibes are worthless.
+
+10. **Output JSON only.** No commentary. No code fences. No prefatory or
+    trailing text. The very first character of your response must be `{`
+    and the very last must be `}`.
+
+11. **Always fill invalidation.** Even on SKIP decisions, provide a
+    non-empty string for `invalidation` — describe what price level or
+    event would have changed your decision. Never return null for this field.
+
+# Output schema
+
+Your response MUST conform to this JSON schema (provided here for reference):
+
+%(schema)s
+
+# Consistency rules (the parser will reject violations)
+
+- decision == "skip":  direction, entry_price, stop_loss, take_profit
+                       must be null;  size_hint must be "skip"
+- decision == "enter": all four trade fields must be set;
+                       size_hint must be "normal" or "reduced";
+                       for direction == "long": stop_loss < entry_price < take_profit
+
+# Tone
+
+Be concise. Be specific. Be honest about uncertainty by using a low
+confidence number rather than weasel words in the reasoning.
+""" % {"schema": json.dumps(DECISION_JSON_SCHEMA, indent=2)}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Few-shot examples — V1
 # ─────────────────────────────────────────────────────────────────────────────
 #
@@ -221,7 +316,7 @@ EXAMPLES_DECISION_V1: list[dict] = [
                 "FOMC rate decision at 19:00Z, 2h away",
                 "Greed-side F&G 64 reduces upside asymmetry",
             ],
-            "invalidation": "",
+            "invalidation": "Would have entered if FOMC were >4h away and setup held.",
         },
     },
     {
@@ -265,6 +360,258 @@ EXAMPLES_DECISION_V1: list[dict] = [
     },
 ]
 
+# Few-shot examples for V2 (multi-instrument — includes stock examples)
+EXAMPLES_DECISION_V2: list[dict] = [
+    # --- BTC skip (FOMC) — same as V1 ---
+    EXAMPLES_DECISION_V1[0],
+    # --- BTC enter — same as V1 ---
+    EXAMPLES_DECISION_V1[1],
+    {
+        "label": "enter — NVDA ema_pullback, semis sector in momentum",
+        "user": (
+            "<context>\n"
+            "instrument: NVDA\n"
+            "as_of: 2026-03-05T15:00:00Z\n"
+            "trigger: ema_pullback at 880.00  (ATR14=18.50, EMA20=875.00, EMA50=840.00)\n"
+            "bars_primary (last 5 H1): close trend 870 -> 874 -> 868 -> 872 -> 880\n"
+            "h4_uptrend: yes  (close 880 > EMA200 780)\n"
+            "news_last_24h: 'NVDA announces next-gen Blackwell GPU shipment beats; datacenter '  \n"
+            "                'revenue +140% YoY', 'SOX index +2.1% today'\n"
+            "macro_upcoming: none within 24h\n"
+            "macro_recent: 2026-03-04T13:30Z ISM Manufacturing (in line)\n"
+            "portfolio: equity=10000 USD, open=0, daily_pnl=0.0\n"
+            "</context>"
+        ),
+        "assistant": {
+            "decision": "enter",
+            "direction": "long",
+            "entry_price": 880.0,
+            "stop_loss": 861.5,
+            "take_profit": 917.0,
+            "confidence": 7,
+            "size_hint": "normal",
+            "reasoning": (
+                "EMA20 pullback in confirmed H4 uptrend (close 880 > EMA200 780). "
+                "Fundamental catalyst: NVDA Blackwell GPU shipments beat, datacenter revenue "
+                "+140% YoY. Semis sector strong (+2.1% SOX today). ATR14=18.50, "
+                "SL at 861.5 (1 ATR below trigger), TP at 917 gives R:R = 37/18.5 = 2.0. "
+                "No upcoming macro events. Clean setup with news confirmation."
+            ),
+            "key_risks": [
+                "Broader market reversal could drag even strong semis names",
+                "News already priced in — momentum may fade intraday",
+            ],
+            "invalidation": "Close below 861.50 on H1 (below EMA20 and 1 ATR from entry)",
+        },
+    },
+    {
+        "label": "enter — NVDA breakout_atr, no news, conf=6, clean technicals",
+        "user": (
+            "<context>\n"
+            "instrument: NVDA\n"
+            "as_of: 2026-03-18T15:00:00Z\n"
+            "trigger: breakout_atr at 875.00  (ATR14=17.50, EMA20=858.00, EMA50=830.00)\n"
+            "bars_primary (last 5 H1): close trend 856 -> 860 -> 858 -> 864 -> 875\n"
+            "h4_uptrend: yes  (close 875 > EMA200 780)\n"
+            "indicators:\n"
+            "  ema200_h1: 798.00\n"
+            "  bb_pct_b: 1.05  bb_width: 0.045\n"
+            "  vwap: 861.00  (price above VWAP by 1.62%%)\n"
+            "  rsi14: 72.4\n"
+            "  stoch_rsi_k: 83.2  stoch_rsi_d: 79.1\n"
+            "  macd_hist: 3.20  (positive, rising)\n"
+            "  volume: 3800000  2.8x avg\n"
+            "  obv: rising trend last 5 bars\n"
+            "  rsi_divergence: none\n"
+            "news_last_24h: (none)\n"
+            "macro_upcoming: none within 24h\n"
+            "portfolio: equity=10000 USD, open=0, daily_pnl=0.0\n"
+            "</context>"
+        ),
+        "assistant": {
+            "decision": "enter",
+            "direction": "long",
+            "entry_price": 875.0,
+            "stop_loss": 857.5,
+            "take_profit": 910.0,
+            "confidence": 6,
+            "size_hint": "normal",
+            "reasoning": (
+                "Breakout above 20-bar high at 875 with 2.8x volume and ATR expansion. "
+                "H4 uptrend confirmed (close 875 > EMA200 780). Price above VWAP (875 vs 861) "
+                "confirms intraday institutional buying. OBV rising 5 consecutive bars confirms "
+                "volume is accumulation, not distribution. RSI=72.4 and StochRSI K=83.2 are "
+                "elevated but expected on a breakout — not a veto. No news catalyst lowers conf "
+                "from 7 to 6, but technicals are clean. SL at 857.5 (1x ATR below entry), "
+                "TP at 910 gives R:R = 35/17.5 = 2.0."
+            ),
+            "key_risks": [
+                "No news catalyst — breakout on technicals only",
+                "StochRSI >80 may lead to short-term pullback before continuation",
+                "bb_pct_b > 1 means price is extended above upper Bollinger Band",
+            ],
+            "invalidation": "Close back below EMA20 (858) on H1 — breakout failure.",
+        },
+    },
+    {
+        "label": "skip — IONQ volume_absorption, bearish RSI divergence, OBV falling",
+        "user": (
+            "<context>\n"
+            "instrument: IONQ\n"
+            "as_of: 2026-03-10T14:00:00Z\n"
+            "trigger: volume_absorption at 28.50  (ATR14=1.80, EMA20=27.90, EMA50=26.00)\n"
+            "bars_primary (last 5 H1): close trend 27.5 -> 27.8 -> 28.1 -> 28.3 -> 28.5\n"
+            "h4_uptrend: yes  (close 28.5 > EMA200 22.0)\n"
+            "indicators:\n"
+            "  bb_pct_b: 0.88  bb_width: 0.062\n"
+            "  vwap: 28.80  (price BELOW VWAP by 1.05%%)\n"
+            "  rsi14: 61.2\n"
+            "  stoch_rsi_k: 74.3  stoch_rsi_d: 68.1\n"
+            "  obv: falling last 3 bars despite price rising\n"
+            "  rsi_divergence: BEARISH DIVERGENCE (price higher high, RSI lower high)\n"
+            "news_last_24h: no company-specific news\n"
+            "macro_upcoming: none within 12h\n"
+            "portfolio: equity=10000 USD, open=2, daily_pnl=+0.4%\n"
+            "</context>"
+        ),
+        "assistant": {
+            "decision": "skip",
+            "direction": None,
+            "entry_price": None,
+            "stop_loss": None,
+            "take_profit": None,
+            "confidence": 3,
+            "size_hint": "skip",
+            "reasoning": (
+                "Volume absorption trigger fires but two indicators contradict the setup. "
+                "First: bearish RSI divergence — price made higher high (28.5 vs prior 28.3) "
+                "but RSI made lower high (61.2 vs prior ~65) — classic distribution warning. "
+                "Second: OBV falling for 3 consecutive bars while price rises means volume "
+                "is not confirming the move. Third: price is BELOW VWAP (28.50 vs 28.80) — "
+                "intraday sellers in control. These three signals together outweigh the volume "
+                "spike. Conf=3, SKIP."
+            ),
+            "key_risks": [
+                "Bearish RSI divergence = distribution signal",
+                "OBV falling = volume not confirming price rise",
+                "Price below VWAP = institutional intraday selling",
+            ],
+            "invalidation": "Would enter if OBV reversed upward and price reclaimed VWAP (28.80) with a clean close.",
+        },
+    },
+]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# System prompt — V3 (oprava over-conservative RSI/StochRSI veta)
+# ─────────────────────────────────────────────────────────────────────────────
+#
+# Klíčové změny oproti V2:
+#   - Pravidlo pro momentum filtry: u breakout_atr a volume_absorption je
+#     RSI>70 a StochRSI>80 NORMÁLNÍ součást setupu — nepoužívej jako veto
+#   - Confidence threshold snížen: conf=6 stačí pro vstup pokud sedí geometrie
+#   - Bez news = nižší conf, ale ne automatický skip — technické podmínky mají váhu
+#   - Přidán výklad jednotlivých nových indikátorů (BB, VWAP, StochRSI, OBV, divergence)
+
+SYSTEM_DECIDER_V3 = """\
+You are the decision module of an AI-assisted **multi-instrument long-only**
+trading signal bot. Instruments include crypto (BTC/USD) and US stocks
+(NVDA, TSLA, IONQ and others). The instrument being evaluated is always
+specified in the context block.
+
+A deterministic local scanner has already detected a technical setup using
+one of three filters: `ema_pullback`, `breakout_atr`, or `volume_absorption`.
+Your job is to weigh the full context and decide whether to send a trade signal.
+
+You are NOT a price predictor. Your edge is in synthesising heterogeneous
+context that a deterministic scanner cannot see.
+
+# How to interpret the three scanner filters
+
+**ema_pullback** — price pulled back to EMA20 after being stretched above it.
+  This is a *mean-reversion entry* on a trend. Best when RSI < 60 at trigger,
+  StochRSI coming off oversold, and VWAP is below price (price still above VWAP).
+
+**breakout_atr** — price closed above the 20-bar high with ATR expansion.
+  This is a *momentum entry*. RSI 60-80 at trigger is NORMAL and expected —
+  do NOT skip breakouts just because RSI is elevated. Use OBV trend and
+  volume ratio to confirm. StochRSI overbought (>80) warrants reduced size,
+  not automatic skip.
+
+**volume_absorption** — high-volume bullish bar closing in the upper third.
+  This is a *demand confirmation entry*. Volume 2-4x average is the signal.
+  RSI can be 65-80 here; that's fine. Bearish RSI divergence on this setup
+  is a genuine warning. OBV rising confirms absorption is real.
+
+# Operating rules
+
+1. **Default is SKIP** — but confidence ≥ 6 with clean geometry should enter.
+   Confidence 4-5 = mixed, lean skip. Confidence 6+ with R:R ≥ 1.8 = enter.
+
+2. **Long-only.** Phase 1 of this bot does not short.
+
+3. **News blackout — macro.** FOMC, CPI, NFP, PCE within ±30 min → SKIP.
+
+4. **News blackout — earnings.** For stocks: earnings within ±24h → SKIP.
+
+5. **R:R minimum 1.8.** If you cannot find a (entry, SL, TP) with R:R ≥ 1.8,
+   SKIP. Use ATR14 to size SL: SL = entry − 1.0×ATR (long), TP = entry + 2×ATR
+   is a reasonable starting geometry if you have no other reference.
+
+6. **Indicator interpretation guide:**
+   - **BB pct_b**: 0=at lower band, 1=at upper. >1 = above upper band.
+     For breakout_atr: bb_pct_b > 1 is normal. For ema_pullback: bb_pct_b < 0.4 is ideal.
+   - **BB width**: squeeze (< 0.03) before a breakout_atr is a strong confirmation.
+   - **VWAP**: price > VWAP = institutional buyers in control intraday (bullish).
+     Price < VWAP on a stock trigger = extra caution.
+   - **StochRSI %%K/%%D**: < 20 = oversold (good for ema_pullback entry),
+     > 80 = overbought (fine for breakout momentum, reduce size, not skip).
+   - **OBV**: rising OBV = volume confirms uptrend. Falling OBV while price
+     rises = distribution warning.
+   - **rsi_divergence = BULLISH**: price made lower low but RSI made higher low.
+     Strong reversal signal — increases confidence by 1-2 points on ema_pullback.
+   - **rsi_divergence = BEARISH**: warning signal on breakout — reduce confidence.
+
+7. **No news context**: if news_last_24h is empty, reduce confidence by 1 but
+   do NOT skip purely because news is missing. Technical context alone can
+   support a conf=6 entry.
+
+8. **Confidence calibration:**
+   - 1-2 — noise, broken setup, clear reason to avoid
+   - 3   — weak; skip
+   - 4   — mixed signals, poor geometry or conflicting indicators; skip
+   - 5   — technically marginal but not disqualifying; skip unless R:R > 2.5
+   - 6   — technically clean setup: H4 uptrend confirmed, filter logic sound,
+           R:R ≥ 1.8, no macro event, indicators consistent with filter type → **ENTER**
+   - 7   — strong technicals + volume confirmation + trend fully aligned → ENTER
+   - 8   — strong technicals + news/sentiment catalyst → ENTER with normal size
+   - 9-10 — rare; multiple independent confirmations
+
+   **Key rule: conf=6 with clean geometry IS sufficient to enter.**
+   The absence of news does NOT lower confidence below 6 if technicals are clean.
+   Elevate to 7 when volume, OBV, and trend are all aligned. Drop to 5 only when
+   a specific indicator contradicts the setup (e.g. bearish RSI divergence on breakout,
+   or OBV falling while price breaks out).
+
+9. **Reasoning must cite specifics** — exact numbers from the indicators block,
+   not generic descriptions.
+
+10. **Output JSON only.** First char `{`, last char `}`. No fences, no prose.
+
+11. **Always fill invalidation** with a specific price level or condition.
+    Never return null.
+
+# Output schema
+
+%(schema)s
+
+# Consistency rules
+
+- decision == "skip":  direction, entry_price, stop_loss, take_profit must be null; size_hint must be "skip"
+- decision == "enter": all four trade fields must be set; size_hint "normal" or "reduced";
+                       long: stop_loss < entry_price < take_profit
+""" % {"schema": json.dumps(DECISION_JSON_SCHEMA, indent=2)}
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Versioning helpers
@@ -278,5 +625,5 @@ def prompt_hash(text: str) -> str:
 
 def active_prompt() -> tuple[str, str, str]:
     """Return (version, text, hash) of the currently active system prompt."""
-    text = SYSTEM_DECIDER_V1
-    return ("v1.0.0", text, prompt_hash(text))
+    text = SYSTEM_DECIDER_V3
+    return ("v3.0.0", text, prompt_hash(text))

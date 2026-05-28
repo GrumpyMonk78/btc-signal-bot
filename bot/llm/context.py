@@ -136,15 +136,77 @@ def render_context_for_prompt(ctx: DeciderContext) -> str:
 
     # ── Scanner trigger ──────────────────────────────────────────────────
     t = ctx.trigger
+    n = t.notes  # shorthand
     lines.append("scanner_trigger:")
     lines.append(f"  filter: {t.filter}")
     lines.append(f"  timestamp: {t.timestamp.isoformat()}")
     lines.append(f"  price: {t.price:.2f}")
-    if t.notes:
-        key_notes = {k: t.notes[k] for k in ("ema20", "ema50", "atr14", "h4_uptrend", "vol_ma20")
-                     if k in t.notes}
-        for k, v in key_notes.items():
-            lines.append(f"  {k}: {v:.4f}" if isinstance(v, float) else f"  {k}: {v}")
+
+    # ── Indicators (compact, one per line) ───────────────────────────────
+    lines.append("")
+    lines.append("indicators:")
+
+    def _f(key: str, decimals: int = 2) -> str:
+        v = n.get(key, float("nan"))
+        if isinstance(v, float) and (v != v):  # NaN check
+            return "n/a"
+        return f"{v:.{decimals}f}"
+
+    # Trend & MAs
+    lines.append(f"  h4_uptrend:    {bool(n.get('h4_uptrend', 0))}  "
+                 f"(close > H4 EMA200)")
+    lines.append(f"  ema20:         {_f('ema20')}   ema50: {_f('ema50')}   ema200_h1: {_f('ema200')}")
+
+    # Volatility
+    close = n.get("close", 0)
+    atr_pct = (n.get("atr14", float("nan")) / close * 100) if close else float("nan")
+    atr_pct_str = f"{atr_pct:.2f}%" if atr_pct == atr_pct else "n/a"
+    lines.append(f"  atr14:         {_f('atr14')}  ({atr_pct_str} of price)")
+
+    # Bollinger Bands
+    bb_pct_b = n.get("bb_pct_b", float("nan"))
+    bb_width = n.get("bb_width", float("nan"))
+    bb_squeeze = "SQUEEZE" if (bb_width == bb_width and bb_width < 0.03) else ""
+    lines.append(f"  bb_upper:      {_f('bb_upper')}   bb_lower: {_f('bb_lower')}")
+    lines.append(f"  bb_pct_b:      {_f('bb_pct_b', 3)}  "
+                 f"(0=at lower, 1=at upper)  bb_width: {_f('bb_width', 4)}  {bb_squeeze}")
+
+    # VWAP
+    vwap_v = n.get("vwap", float("nan"))
+    if vwap_v == vwap_v and close:
+        vwap_rel = "above" if close > vwap_v else "below"
+        vwap_dist = abs(close - vwap_v) / close * 100
+        lines.append(f"  vwap:          {_f('vwap')}  (price is {vwap_rel} VWAP by {vwap_dist:.2f}%)")
+    else:
+        lines.append(f"  vwap:          n/a")
+
+    # Momentum
+    lines.append(f"  rsi14:         {_f('rsi14', 1)}")
+    stoch_k = n.get("stoch_k", float("nan"))
+    stoch_d = n.get("stoch_d", float("nan"))
+    stoch_signal = ""
+    if stoch_k == stoch_k and stoch_d == stoch_d:
+        if stoch_k < 20:
+            stoch_signal = " ← OVERSOLD"
+        elif stoch_k > 80:
+            stoch_signal = " ← OVERBOUGHT"
+    lines.append(f"  stoch_rsi_k:   {_f('stoch_k', 1)}   stoch_rsi_d: {_f('stoch_d', 1)}{stoch_signal}")
+    lines.append(f"  macd:          {_f('macd', 4)}   signal: {_f('macd_signal', 4)}   hist: {_f('macd_hist', 4)}")
+
+    # Volume & OBV
+    vol = n.get("volume", 0)
+    vol_ma = n.get("vol_ma20", 0)
+    vol_ratio = vol / vol_ma if vol_ma else float("nan")
+    vol_ratio_str = f"{vol_ratio:.1f}x avg" if vol_ratio == vol_ratio else ""
+    lines.append(f"  volume:        {vol:.0f}  {vol_ratio_str}")
+    lines.append(f"  obv:           {_f('obv', 0)}  (cumulative; trend direction matters)")
+
+    # RSI Divergence
+    div = int(n.get("rsi_divergence", 0))
+    div_str = {1: "BULLISH DIVERGENCE (price lower low, RSI higher low)",
+               -1: "BEARISH DIVERGENCE (price higher high, RSI lower high)",
+               0: "none"}.get(div, "none")
+    lines.append(f"  rsi_divergence:{div_str}")
 
     # ── Bars ─────────────────────────────────────────────────────────────
     lines.append("")

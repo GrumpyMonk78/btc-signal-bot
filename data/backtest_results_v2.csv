@@ -1,0 +1,49 @@
+symbol,trigger_ts,filter_name,trigger_price,decision,confidence,entry_price,stop_loss,take_profit,price_4h,price_8h,price_24h,pnl_8h_pct,tokens_in,tokens_out,reasoning_short
+BTC/USD,2026-05-09T16:00:00+00:00,ema_pullback,80618.755,skip,3,,,,80759.93,80662.15,81479.18,,6377,380,EMA pullback trigger fires but context is weak. H4 bars show BTC dropped from ~8
+BTC/USD,2026-05-09T22:00:00+00:00,ema_pullback,80751.8795,skip,4,,,,80752.536,80723.95,82198.05,,6377,431,EMA pullback trigger fires with price at 80751.88 above EMA20=80548 and EMA50=80
+BTC/USD,2026-05-10T17:00:00+00:00,volume_absorption,81479.18,skip,4,,,,82021.959,81152.2345,81850.255,,6375,416,Volume absorption trigger fired at 81479 but the context is weak. ATR14=255 is e
+BTC/USD,2026-05-10T22:00:00+00:00,breakout_atr,82021.959,skip,4,,,,80726.696,80707.955,81738.608,,6377,379,The 22:00Z H1 candle shows a spike from 80656 low to 82142 high closing at 82021
+BTC/USD,2026-05-11T11:00:00+00:00,volume_absorption,81171.394,skip,3,,,,81548.55,81804.3665,80871.23,,6375,417,Volume absorption trigger fired but the H1 volume data is deeply suspicious — vo
+BTC/USD,2026-05-11T17:00:00+00:00,ema_pullback,81936.43,skip,4,,,,81820.315,81233.21,80662.2,,6377,376,EMA pullback trigger fires with price at 81936 above EMA20 (81178) and EMA50 (80
+BTC/USD,2026-05-11T23:00:00+00:00,ema_pullback,81738.608,skip,4,,,,81208.433,80817.0,80701.677,,6377,468,EMA pullback trigger fired at 81738 with price above EMA20 (81467) and EMA50 (81
+BTC/USD,2026-05-12T17:00:00+00:00,volume_absorption,80499.1535,skip,3,,,,80640.355,81026.629,79582.05,,6375,424,Volume absorption trigger at 80499 fires below both EMA20 (80785) and EMA50 (809
+BTC/USD,2026-05-13T09:00:00+00:00,ema_pullback,81277.873,skip,3,,,,79730.715,79582.05,79538.315,,6377,372,"EMA20 (80946) and EMA50 (80945) are essentially flat and converged, signalling r"
+BTC/USD,2026-05-13T14:00:00+00:00,volume_absorption,79730.715,skip,3,,,,79626.1075,79291.35,81319.0,,6375,418,Price is in a confirmed downtrend on the current H1 sequence: from 81277 at 05-1
+BTC/USD,2026-05-14T14:00:00+00:00,breakout_atr,80953.597456895,skip,4,,,,81422.151,81079.029,79114.499,,6377,437,The H1 breakout candle (05-14T14:00Z) shows a dramatic spike from 79670 to 80999
+BTC/USD,2026-05-15T02:00:00+00:00,ema_pullback,81283.261,skip,4,,,,80810.76,80601.45,79036.3355,,6377,461,EMA pullback trigger fired at 81283 with EMA20=80899 and H4 uptrend confirmed. H
+BTC/USD,2026-05-15T06:00:00+00:00,volume_absorption,80566.0675,skip,3,,,,80601.45,79114.499,78341.65,,6375,382,"Price at 80566 is trading below both EMA20 (80817) and EMA50 (80587), which mean"
+BTC/USD,2026-05-15T14:00:00+00:00,volume_absorption,79093.945,skip,3,,,,79087.98,79062.715,78204.4,,6375,396,"Price at 79093.95 is trading BELOW both EMA20 (80385) and EMA50 (80459), not a p"
+BTC/USD,2026-05-17T10:00:00+00:00,volume_absorption,78443.03,skip,4,,,,78017.055,78368.6755,77227.622,,6375,409,Volume absorption triggered but the H4 context reveals a clear downtrend from ~8
+BTC/USD,2026-05-21T00:00:00+00:00,ema_pullback,77882.99,skip,4,,,,77753.8045,77541.5825,77543.951,,6377,406,EMA pullback trigger fires at 77882.99 with price above EMA20 (77372) in a confi
+BTC/USD,2026-05-21T05:00:00+00:00,ema_pullback,77753.8045,skip,4,,,,77136.6655,76898.5085,77326.7,,6377,394,"EMA pullback trigger fires with price at 77753.80, EMA20=77570, EMA50=77343, H4 "
+BTC/USD,2026-05-25T12:00:00+00:00,ema_pullback,77279.82,skip,4,,,,77499.9,77290.1915,77147.5235,,6377,319,"EMA20 pullback in confirmed H4 uptrend technically qualifies, but context is wea"
+NVDA,2026-04-24T14:00:00+00:00,volume_absorption,208.7,enter,7,208.7,204.65,216.8,208.18,211.07,211.07,1.135601341638718,6207,454,"The 04-24T14:00Z H1 bar is a decisive breakout: open 201.97, high 208.88, close "
+NVDA,2026-04-27T16:00:00+00:00,breakout_atr,212.75,enter,7,212.75,210.35,218.1,210.14,210.14,211.77,-1.2267920094007114,6213,412,Breakout_atr trigger at 212.75 with current H1 bar showing 780K volume vs 20-bar
+NVDA,2026-04-28T12:00:00+00:00,ema_pullback,210.14,skip,4,,,,211.77,213.66,210.79,,6214,363,The EMA pullback trigger fires with price at 210.14 essentially touching EMA20 (
+NVDA,2026-04-28T16:00:00+00:00,ema_pullback,210.7,skip,4,,,,213.66,213.66,209.095,,6215,417,EMA pullback trigger is technically valid (price 210.70 vs EMA20 210.27 in H4 up
+NVDA,2026-05-06T19:00:00+00:00,volume_absorption,207.67,skip,4,,,,208.22,208.22,212.02,,6206,421,NVDA has surged from ~196 to 207.67 in today's session alone — the 05-06T13:00Z 
+NVDA,2026-05-11T14:00:00+00:00,breakout_atr,221.59,enter,7,221.59,218.97,226.83,219.45,218.82,216.88,-1.2500564104878424,6209,412,"ATR breakout with strong momentum: 05-11T14:00Z bar opened at 217.13, hit 222.16"
+NVDA,2026-05-12T13:00:00+00:00,ema_pullback,220.33,skip,4,,,,219.53,224.51,226.375,,6209,394,Technical structure is mixed: EMA20 pullback trigger fires at 220.33 within H4 u
+NVDA,2026-05-12T17:00:00+00:00,ema_pullback,218.69,enter,6,218.69,215.99,224.08,224.51,224.51,226.45,2.6613013855228833,6209,430,EMA20 pullback trigger at 218.69 in confirmed H4 uptrend (close above EMA50=212.
+NVDA,2026-05-14T14:00:00+00:00,volume_absorption,234.57,enter,6,234.57,231.7,240.3,235.78,228.65,228.1,-2.523766892612008,6207,389,Volume absorption trigger on strong momentum: the 05-14T14:00Z bar printed H=236
+NVDA,2026-05-18T12:00:00+00:00,ema_pullback,230.06,skip,4,,,,221.495,220.64,220.855,,6208,414,The H1 EMA20 pullback trigger fires at 230.06 but the H4 context bar for 05-18 s
+NVDA,2026-05-20T16:00:00+00:00,ema_pullback,224.59,skip,4,,,,222.19,222.19,220.9,,6207,468,"The EMA pullback trigger fires at 224.59 with EMA20=223.43 and EMA50=223.21, mea"
+TSLA,2026-05-07T13:00:00+00:00,volume_absorption,413.485,skip,4,,,,404.4,416.94,427.47,,6181,470,"The 05-07T13:00Z bar shows a strong move from 405.48 to 413.49 (+8 points, ~2% o"
+TSLA,2026-05-08T13:00:00+00:00,breakout_atr,428.025,skip,4,,,,426.0,424.08,424.08,,6184,450,"The scanner detected a breakout_atr at 428.02, and price has genuinely surged fr"
+TSLA,2026-05-11T13:00:00+00:00,ema_pullback,421.66,skip,4,,,,444.635,441.0,430.86,,6183,423,The trigger price of 421.66 conflicts with the H4 bar for 05-11 which shows a hi
+TSLA,2026-05-13T13:00:00+00:00,ema_pullback,433.77,skip,4,,,,445.87,449.13,444.38,,6183,410,"EMA pullback trigger fires at 433.77 with EMA20=431.02 in H4 uptrend, but the cu"
+TSLA,2026-05-14T14:00:00+00:00,ema_pullback,444.38,skip,4,,,,443.21,431.64,425.04,,6182,439,"EMA pullback trigger fires at 444.38 with EMA20=440.56 and H4 uptrend confirmed,"
+TSLA,2026-05-14T18:00:00+00:00,ema_pullback,444.89,skip,4,,,,431.64,431.64,422.27,,6183,384,EMA pullback trigger at 444.89 with H4 uptrend confirmed and EMA20=442.64 acting
+TSLA,2026-05-22T14:00:00+00:00,volume_absorption,430.44,skip,4,,,,425.95,429.88,429.88,,6182,473,The current H1 bar (05-22T14:00Z) shows a strong move from 422 to 430.44 on volu
+IONQ,2026-04-29T19:00:00+00:00,volume_absorption,42.1,skip,3,,,,42.7,42.7,44.45,,6190,387,Price is in a clear short-term downtrend from a peak near 48.41 (04-20) to curre
+IONQ,2026-05-04T19:00:00+00:00,ema_pullback,45.78,skip,4,,,,44.94,44.94,49.74,,6190,449,"EMA pullback trigger fired at 45.78 with EMA20=45.60, but the H1 price action sh"
+IONQ,2026-05-05T14:00:00+00:00,ema_pullback,45.89,skip,4,,,,48.045,49.74,50.97,,6190,373,EMA pullback trigger fires with price 45.89 above EMA20 45.57 and EMA50 44.85 in
+IONQ,2026-05-06T14:00:00+00:00,volume_absorption,50.29,skip,4,,,,52.54,50.865,48.18,,6189,437,Price has surged from ~41.50 on 04-29 to 50.29 today — a 21% move in 5 trading d
+IONQ,2026-05-07T13:00:00+00:00,ema_pullback,50.865,skip,3,,,,46.94,47.535,47.0,,6191,470,The price action shows a sharp 3-day rally from ~44 to a spike high of 57.00 on 
+IONQ,2026-05-11T13:00:00+00:00,ema_pullback,53.48,skip,3,,,,56.66,58.04,55.71,,6193,507,The trigger price of 53.48 is tagged as 'ema_pullback' but EMA20=48.52 is 5 poin
+IONQ,2026-05-12T17:00:00+00:00,ema_pullback,53.64,skip,4,,,,53.67,53.67,54.75,,6193,498,The H1 price action shows IONQ topped at 59.12 on 05-12T13:00Z and has since sol
+IONQ,2026-05-13T14:00:00+00:00,ema_pullback,54.73,skip,4,,,,55.23,54.36,56.225,,6191,408,"The setup shows a clean EMA20 pullback (54.73 vs EMA20=53.84) in H4 uptrend, but"
+IONQ,2026-05-14T13:00:00+00:00,ema_pullback,54.36,skip,4,,,,57.51,54.63,51.81,,6192,459,"The trigger fires at 54.36 with price essentially sitting on EMA20 (54.33), whic"
+IONQ,2026-05-21T13:00:00+00:00,volume_absorption,58.52,skip,4,,,,57.53,57.98,63.7,,6192,453,"The 05-21T13:00Z bar shows a violent gap-up: IONQ opened at 55.36, spiked to 58."
+IONQ,2026-05-22T13:00:00+00:00,volume_absorption,63.165,skip,4,,,,63.06,64.83,64.83,,6191,451,"IONQ has surged from ~49 to 63.16 in two sessions (05-21 and 05-22), a ~29% move"
+IONQ,2026-05-27T12:00:00+00:00,ema_pullback,61.76,skip,4,,,,65.23,,,,6189,429,The H4 context shows a violent spike from ~48 to 65 on 05-21/05-22 on massive vo
