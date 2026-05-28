@@ -613,14 +613,36 @@ context that a deterministic scanner cannot see.
 """ % {"schema": json.dumps(DECISION_JSON_SCHEMA, indent=2)}
 
 
+
 # ─────────────────────────────────────────────────────────────────────────────
-# V3.1 — Time-based exit rule
+# V3.1 — Time-based exit rule (rule 12 injected before Output schema)
 # ─────────────────────────────────────────────────────────────────────────────
+
+_RULE_12 = (
+    "\n12. **Time-based exit (dynamic).** When recommending an entry, always include"
+    " in `invalidation` a time exit clause: \'Time exit: if price has not moved at"
+    " least 30%% of the distance to TP within 12 bars (12 hours), close position"
+    " at market.\' Example: if entry=100, TP=103 (distance=3), then after 12h"
+    " price must be at or above 100.90 (entry + 30%% x 3) -- otherwise exit."
+    " This prevents lingering trades when trigger momentum has faded.\n"
+)
 
 SYSTEM_DECIDER_V3_1 = SYSTEM_DECIDER_V3.replace(
-    "11. **Always fill invalidation** with a specific price level or condition.\n    Never return null.",
-    """11. **Always fill invalidation** with a specific price level or condition.
-    Never return null.
+    "# Output schema", _RULE_12 + "# Output schema", 1
+)
 
-12. **Time-based exit (dynamic).** When recommending an entry, always include
-    in `invalidation` a time
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Versioning helpers — V3.1 override
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def prompt_hash(text: str) -> str:
+    """Short stable hash for DB indexing. First 12 hex chars of SHA-256."""
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()[:12]
+
+
+def active_prompt() -> tuple[str, str, str]:
+    """Return (version, text, hash) of the currently active system prompt."""
+    text = SYSTEM_DECIDER_V3_1
+    return ("v3.1.0", text, prompt_hash(text))
