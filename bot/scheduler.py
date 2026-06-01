@@ -24,6 +24,7 @@ from apscheduler.triggers.cron import CronTrigger
 from bot.config import get_enabled_instruments, settings
 from bot.data.market import MarketDataProvider, provider_for
 from bot.execution.portfolio import fetch_portfolio_state
+from bot.execution.position_monitor import monitor_positions
 from bot.pipeline import PipelineResult, run_once
 from bot.storage import db as storage_db
 
@@ -117,6 +118,28 @@ def _daily_summary_job(*, conn: sqlite3.Connection) -> None:
 
 
 # ─────────────────────────────────────────────────────────────────────────────
+# Job: position monitor (time exit)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _monitor_positions_job(*, conn: sqlite3.Connection) -> None:
+    """Hourly check — close positions that exceeded time-exit threshold."""
+    try:
+        actions = monitor_positions(conn)
+        for a in actions:
+            logger.info("position_monitor: %s", a.summary())
+        exits = [a for a in actions if a.action == "time_exit"]
+        if exits:
+            logger.warning(
+                "position_monitor: %d time exit(s) triggered: %s",
+                len(exits), [a.symbol for a in exits],
+            )
+        else:
+            logger.info("position_monitor: no time exits needed (%d positions checked)", len(actions))
+    except Exception:
+        logger.exception("position_monitor: unhandled exception")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 # Heartbeat při startu
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -176,6 +199,17 @@ async def run_scheduler(
         kwargs={"conn": conn},
         id="daily_summary",
         name="daily summary to Telegram",
+    )
+
+    # Position monitor: každou hodinu v HH:05:00 UTC (5 min po pipeline)
+    scheduler.add_job(
+        _monitor_positions_job,
+        CronTrigger(minute=5, second=0, timezone="UTC"),
+        kwargs={"conn": conn},
+        id="position_monitor",
+        name="position monitor — time exit check",
+        max_instances=1,
+        coalesce=True,
     )
 
     _heartbeat()
