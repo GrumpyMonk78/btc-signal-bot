@@ -184,6 +184,24 @@ def _submit_bracket_order(signal: ApprovedSignal) -> ExecutionResult:
 # Public entrypoint
 # ---------------------------------------------------------------------------
 
+def _has_open_position(symbol: str) -> bool:
+    """Zkontroluj jestli symbol uz ma otevrenenou pozici na Alpaca.
+
+    Vraci True pokud pozice existuje (neposlat novy order).
+    Vraci False pri chybe nebo kdyz pozice neexistuje.
+    """
+    try:
+        client = _get_trading_client()
+        positions = client.get_all_positions()
+        alpaca_symbol = symbol.replace("/", "")  # "BTC/USD" -> "BTCUSD"
+        open_symbols = {p.symbol.upper() for p in positions}
+        return alpaca_symbol.upper() in open_symbols
+    except Exception:
+        # Pokud check selze, raději pustíme order dál — lepší než blokovat
+        logger.warning("execute_signal: failed to check open positions for %s — proceeding", symbol)
+        return False
+
+
 def execute_signal(signal: ApprovedSignal) -> ExecutionResult:
     """
     Odesle signal na Alpaca nebo ho skipne (shadow rezim).
@@ -215,6 +233,18 @@ def execute_signal(signal: ApprovedSignal) -> ExecutionResult:
             signal.position_size_usd,
         )
         return ExecutionResult(submitted=False, mode="shadow")
+
+    # Duplicate position check — neposlat order pokud symbol uz je otevreny
+    if _has_open_position(signal.instrument):
+        logger.warning(
+            "execution [%s]: duplicate position check — pozice uz existuje, order NEPOSLÁN",
+            signal.instrument,
+        )
+        return ExecutionResult(
+            submitted=False,
+            mode="paper" if settings.alpaca_paper else "live",
+            error="duplicate_position: symbol already has an open position on Alpaca",
+        )
 
     # Paper nebo live — odesli skutecny order
     return _submit_bracket_order(signal)

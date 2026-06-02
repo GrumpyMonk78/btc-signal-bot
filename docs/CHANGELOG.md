@@ -5,6 +5,76 @@
 
 ---
 
+## 2026-06-02 — No duplicate position check v execute_signal()
+
+**Soubory:**
+- `bot/execution/alpaca.py` — přidán check před odesláním orderu: pokud symbol už má otevřenou pozici na Alpaca, order se nepošle a vrátí se ExecutionResult(submitted=False, error="duplicate_position")
+
+**Co se mění:**
+Před každým bracket orderem (paper i live) se stáhnou aktuální pozice z Alpaca. Pokud symbol už je otevřen, order se zamítne s logem a telegram se nepošle. Shadow mode není dotčen.
+
+**Proč:**
+IONQ se triggeroval 5× za 4 dny. Při otevřené pozici bot posílal nový order na stejný symbol — způsobilo PDT violation a zbytečné zdvojení expozice.
+
+---
+
+## 2026-05-28 — Position monitor: automatický time exit po 12h
+
+**Soubory:**
+- `bot/execution/position_monitor.py` (nový) — hourly job: projde otevřené pozice na Alpaca, zkontroluje věk pozice a pohyb k TP, pošle market close order pokud 12h bez >=30% pohybu k TP
+- `bot/scheduler.py` — přidán job `monitor_positions` každou hodinu na HH:05 UTC
+
+**Co se mění:**
+1. Každou hodinu (5 minut po pipeline) monitor stáhne otevřené pozice z Alpaca.
+2. Pro každou pozici zjistí entry čas z DB (tabulka `signals`), entry cenu, SL a TP.
+3. Pokud pozice existuje >= 12h A cena nepokročila k TP alespoň 30% vzdálenosti → cancel bracket orders + market sell (nebo buy cover pro short).
+4. Víkendy: Alpaca akcie neobchodují v sobotu/neděli — monitor detekuje zavřený trh a přeskočí. Crypto (BTC) obchoduje 24/7 — monitor funguje normálně.
+5. Telegram notifikace při time exit.
+
+**Proč:**
+Time exit byl implementován jen v backtestové simulaci a v Claude promptu (jako text v `invalidation`). Bot sám žádný close order neposlal — pozice by visela dokud SL nebo TP. IONQ pozice otevřená 28.5. — bez monitoru by mohla viset celý víkend.
+
+---
+
+## 2026-05-28 — Risk manager: short povoleno + H4 indikátory v kontextu
+
+**Soubory:**
+- `bot/risk/manager.py` — odstraněn `_check_long_only` (vetoval každý short); nahrazen `_check_direction_matches_h4` — long povoleno jen pokud h4_uptrend=True, short jen pokud h4_downtrend=True
+- `bot/strategy/scanner.py` — H4 indikátory přidány do context dict: `h4_ema20`, `h4_ema50`, `h4_rsi14`, `h4_atr14`, `h4_macd`, `h4_macd_signal`, `h4_macd_hist`
+- `bot/llm/context.py` — nová sekce `indicators_h4:` v render_context_for_prompt(); Claude vidí hladší H4 signály vedle H1
+
+**Co se mění:**
+1. Risk manager přestal vetovat short signály. Nové pravidlo: direction musí odpovídat H4 trendu (long ↔ h4_uptrend, short ↔ h4_downtrend). Pokud H4 trend a direction nesedí → veto `direction_h4_mismatch`.
+2. Scanner spočítá EMA20/50, RSI14, ATR14, MACD na H4 datech a přidá je do context dict každého triggeru.
+3. Context renderer zobrazí H4 indikátory jako samostatnou sekci v user message pro Claude — hladší hodnoty než H1 pomáhají Claudovi správně vyhodnotit sílu trendu a nastavit SL/TP.
+
+**Proč:**
+Risk manager měl hardcoded `_check_long_only` z Phase 1 — každý short signal byl vetován bez ohledu na scanner/Claude. Zároveň Claude dostával jen H1 indikátory (šumivé), ale H4 indikátory (EMA, RSI, ATR) jsou hladší a lépe reflektují silné trendy.
+
+---
+
+## 2026-05-28 — Phase 2+3: Short selling + news váha + obousměrný trend
+
+**Soubory:**
+- `bot/strategy/scanner.py` — short filtry: `ema_pullback_short`, `breakout_atr_short`, `volume_absorption_short`; short gate: H4 close < EMA200
+- `bot/llm/prompts.py` — `SYSTEM_DECIDER_V4`: short reasoning, news váha (+1 conf při potvrzující zprávě <6h, skip při odporující), few-shot short příklady; `active_prompt()` → v4.0.0
+- `bot/storage/models.py` — ověření Direction enum pro short, consistency rules pro short direction
+- `bot/execution/alpaca.py` — short bracket order (side="sell", SL/TP opačně)
+- `scripts/backtest_claude.py` — short statistiky v `_print_summary()`
+- `tests/test_scanner.py` — testy pro short filtry
+
+**Co se mění:**
+1. Scanner nyní hledá triggery v OBOU směrech. Long gate: H4 close > EMA200. Short gate: H4 close < EMA200. Nikdy obojí zároveň.
+2. Zrcadlové short filtry — stejná logika jako long, jen obráceně: pullback k EMA20 shora, breakdown pod ATR, volume absorption při poklesu.
+3. Claude dostane v promptu V4 explicitní short reasoning sekci + pravidla pro news váhu.
+4. Zprávy mají větší váhu: relevantní zpráva z posledních 6h potvrzující směr → confidence +1. Zpráva odporující směru → doporučuj skip bez ohledu na techniku.
+5. Alpaca execution podporuje short bracket ordery.
+
+**Proč:**
+Backtest V6 ukázal TSLA 0% win rate na long (7 trades, 7 losses) — TSLA byl v downtrendu. Bot potřebuje shortovat v bearish prostředí. NVDA a IONQ jsou profitabilní long, ale v korekci by měly shortovat. News váha: živý bot zprávy dostává ale prompt jim nedával dostatečnou váhu.
+
+---
+
 ## 2026-05-28 — Time-based exit + budget arg pro backtest
 
 **Soubory:**
