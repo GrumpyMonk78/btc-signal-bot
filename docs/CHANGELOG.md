@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-06-14 — Bugfix: ScannerTrigger Literal chybí short filtry
+
+**Soubory:**
+- `bot/storage/models.py` — přidány short varianty do `ScannerTrigger.filter` Literal
+
+**Co se mění:**
+Pydantic model `ScannerTrigger` měl v poli `filter` pouze long varianty:
+`"ema_pullback", "breakout_atr", "volume_absorption"`. Když scanner od 4. června
+začal nacházet short setupy (`ema_pullback_short` atd.), pipeline crashovala s
+`ValidationError` a Claude nebyl volán. Bot tiše přeskakoval všechny short triggery
+po dobu 10 dní. Opraveno přidáním všech 6 variant do Literal.
+
+**Proč:**
+Short filtry byly přidány do scanneru (fáze 2), ale `models.py` nebyl aktualizován.
+Chyba se projevila až když trh přešel do downtrendu a scanner začal generovat
+výhradně short signály.
+
+---
+
 ## 2026-06-14 — Školní projekt JEM207: README + Jupyter notebook + analysis/
 
 **Soubory:**

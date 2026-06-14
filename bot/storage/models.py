@@ -101,7 +101,7 @@ class Bar(BaseModel):
 class ScannerTrigger(BaseModel):
     """What the local scanner flagged — passed to Claude as a hint, not a hard ask."""
 
-    filter: Literal["ema_pullback", "breakout_atr", "volume_absorption"]
+    filter: Literal["ema_pullback", "breakout_atr", "volume_absorption", "ema_pullback_short", "breakout_atr_short", "volume_absorption_short"]
     timestamp: datetime
     price: float = Field(gt=0)
     notes: dict = Field(default_factory=dict, description="Numeric context: ATR, EMA values, etc.")
