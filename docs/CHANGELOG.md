@@ -5,6 +5,20 @@
 
 ---
 
+## 2026-06-14 — Školní projekt JEM207: README + Jupyter notebook + analysis/
+
+**Soubory:**
+- `README.md` — přepsán pro akademické publikum (JEM207). Popis architektury, instrumentů, data sources, scanner filtrů, Claude integrace, risk manageru, backtestu a instalace.
+- `analysis/backtest_analysis.ipynb` — nový Jupyter notebook s vizualizacemi: decision distribution, per-instrument breakdown, PnL distribution, cumulative returns, filter analysis, confidence analysis, hold time, token usage, dashboard.
+
+**Co se mění:**
+Přidány dokumenty pro odevzdání školního projektu. Žádný kód bota se nemění — pouze README a analýza.
+
+**Proč:**
+Deadline JEM207 — Data Processing in Python: 14. 6. 2026.
+
+---
+
 ## 2026-06-02 — No duplicate position check v execute_signal()
 
 **Soubory:**
