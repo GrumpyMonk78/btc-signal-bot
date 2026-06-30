@@ -115,11 +115,11 @@ def _qty_for_instrument(signal: ApprovedSignal) -> str:
 
 def _submit_bracket_order(signal: ApprovedSignal) -> ExecutionResult:
     """
-    Odesle bracket order na Alpaca.
+    Odesle order na Alpaca.
 
-    Pouziva MARKET entry (okamzite plneni pri otevreni trhu).
-    SL = stop order, TP = limit order — oba se zrusene automaticky
-    kdyz se aktivuje druhý (one-cancels-other je soucasti bracket orderu).
+    Pro AKCIE: bracket order (entry + SL + TP v jednom OTOCO orderu).
+    Pro KRYPTO: jednoduchý market order — Alpaca neumožňuje OTOCO pro crypto.
+                SL/TP pro krypto hlídá position_monitor (time exit + progress check).
     """
     from alpaca.trading.requests import (
         MarketOrderRequest,
@@ -127,37 +127,56 @@ def _submit_bracket_order(signal: ApprovedSignal) -> ExecutionResult:
         StopLossRequest,
     )
     from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass
+    from bot.config import get_instrument
 
     client = _get_trading_client()
+    mode_str = "paper" if settings.alpaca_paper else "live"
 
     try:
         qty_str = _qty_for_instrument(signal)
     except ValueError as exc:
         return ExecutionResult(
             submitted=False,
-            mode="paper" if settings.alpaca_paper else "live",
+            mode=mode_str,
             error=str(exc),
         )
 
     side = OrderSide.BUY if signal.direction == DecisionDirection.LONG else OrderSide.SELL
+    alpaca_symbol = signal.instrument.replace("/", "")  # "BTC/USD" -> "BTCUSD"
 
-    order_req = MarketOrderRequest(
-        symbol=signal.instrument.replace("/", ""),  # "BTC/USD" -> "BTCUSD" pro Alpaca
-        qty=qty_str,
-        side=side,
-        time_in_force=TimeInForce.GTC,
-        order_class=OrderClass.BRACKET,
-        take_profit=TakeProfitRequest(limit_price=round(signal.take_profit, 4)),
-        stop_loss=StopLossRequest(stop_price=round(signal.stop_loss, 4)),
-    )
+    # Zjisti jestli je to krypto
+    inst = get_instrument(signal.instrument)
+    is_crypto = inst is not None and inst.kind == "crypto"
+
+    if is_crypto:
+        # Krypto: jednoduchý market order (Alpaca nepovoluje OTOCO pro crypto)
+        # SL/TP hlídá position_monitor každou hodinu
+        order_req = MarketOrderRequest(
+            symbol=alpaca_symbol,
+            qty=qty_str,
+            side=side,
+            time_in_force=TimeInForce.GTC,
+        )
+        log_suffix = f"(simple market — SL/TP hlídá position_monitor)"
+    else:
+        # Akcie: bracket order s SL+TP
+        order_req = MarketOrderRequest(
+            symbol=alpaca_symbol,
+            qty=qty_str,
+            side=side,
+            time_in_force=TimeInForce.DAY,
+            order_class=OrderClass.BRACKET,
+            take_profit=TakeProfitRequest(limit_price=round(signal.take_profit, 2)),
+            stop_loss=StopLossRequest(stop_price=round(signal.stop_loss, 2)),
+        )
+        log_suffix = f"SL=%.4f TP=%.4f" % (signal.stop_loss, signal.take_profit)
 
     try:
         order = client.submit_order(order_req)
-        mode_str = "paper" if settings.alpaca_paper else "live"
         logger.info(
-            "execution [%s]: bracket order submitted id=%s qty=%s side=%s entry~%.4f SL=%.4f TP=%.4f",
+            "execution [%s]: order submitted id=%s qty=%s side=%s entry~%.4f %s",
             signal.instrument, order.id, qty_str, side.value,
-            signal.entry_price, signal.stop_loss, signal.take_profit,
+            signal.entry_price, log_suffix,
         )
         return ExecutionResult(
             submitted=True,
@@ -169,13 +188,14 @@ def _submit_bracket_order(signal: ApprovedSignal) -> ExecutionResult:
                 "sl": signal.stop_loss,
                 "tp": signal.take_profit,
                 "client_order_id": str(order.client_order_id),
+                "order_type": "market_simple" if is_crypto else "bracket",
             },
         )
     except Exception as exc:
         logger.exception("execution [%s]: order submission failed", signal.instrument)
         return ExecutionResult(
             submitted=False,
-            mode="paper" if settings.alpaca_paper else "live",
+            mode=mode_str,
             error=f"{type(exc).__name__}: {exc}",
         )
 

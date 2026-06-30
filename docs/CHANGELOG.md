@@ -5,6 +5,25 @@
 
 ---
 
+## 2026-06-19 — Bugfix: krypto nepodporuje bracket order (OTOCO)
+
+**Soubory:**
+- `bot/execution/alpaca.py` — `_submit_bracket_order()` rozděleno na dvě větve:
+  krypto = jednoduchý market order, akcie = bracket order (SL+TP)
+
+**Co se mění:**
+Alpaca vrací `crypto orders not allowed for advanced order_class: otoco` při pokusu
+o bracket order na BTC/USD. Pro krypto nyní posíláme jednoduchý market order bez
+SL/TP — time exit a progress check zajišťuje `position_monitor` každou hodinu.
+Pro akcie zůstává bracket order beze změny.
+
+**Proč:**
+Alpaca paper API neumožňuje OTOCO (bracket) ordery pro krypto instrumenty.
+BTC/USD short signal přišel 19.6. 13:00 UTC, Claude schválil (conf=6), Telegram
+odeslán, ale order selhal s kódem 42210000.
+
+---
+
 ## 2026-06-14 — Bugfix: ScannerTrigger Literal chybí short filtry
 
 **Soubory:**
