@@ -5,6 +5,28 @@
 
 ---
 
+## 2026-06-30 — Notebook: vylepšení dle komentářů učitele (JEM207 konzultace)
+
+**Soubory:**
+- `analysis/backtest_analysis.ipynb` — kompletní přepis notebooku
+
+**Co se mění:**
+- Kód přesunut do pojmenovaných funkcí (modularita): `load_data()`, `split_decisions()`,
+  `plot_overview()`, `instrument_stats()`, `plot_instrument_breakdown()`, `plot_pnl()`,
+  `simulate_skipped_trades()`, `plot_counterfactual()`, `plot_performance_over_time()`,
+  `filter_stats()`, `plot_filter_analysis()`, `plot_hold_and_confidence()`,
+  `compute_api_costs()`, `plot_token_usage()`
+- Přidána sekce 4: counterfactual analýza skippovaných obchodů (simulate_skipped_trades)
+- Přidána sekce 5: výkonnost v čase (rolling win rate, první vs. druhá polovina)
+- Přidáno vysvětlení časového období (April 24 – May 27, ~5 týdnů) a malého vzorku
+- Přidáno vysvětlení rozdílů v enter rates mezi instrumenty
+- Textové komentáře přidány přímo pod každý graf (ne na konci)
+
+**Proč:**
+Odpověď na zpětnou vazbu z konzultace JEM207 (Dr. Josef Kurka).
+
+---
+
 ## 2026-06-19 — Bugfix: krypto nepodporuje bracket order (OTOCO)
 
 **Soubory:**
